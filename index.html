@@ -5,7 +5,6 @@
 <link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png">
 <title>JARVIS 5.0</title>
 <style>
-/* ... (ТВОИ СТИЛИ БЕЗ ИЗМЕНЕНИЙ, ОНИ БЕЗОПАСНЫ) ... */
 :root{--c:#00d9ff;--bg:#02070d;--p:#050c14;--g:#00e77b;--r:#ff4d6d;--plus:#a855f7;--plus2:#00f5a0}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{width:100%;height:100dvh;overscroll-behavior:none}
@@ -23,6 +22,7 @@ body.plus-mode #oh{background:rgba(12,4,23,.98);color:var(--plus2)}
 body.plus-mode #oh .row{border-color:#7e22ce;background:#18092b;color:#f5eaff}
 body.plus-mode #oh .btn{background:var(--plus);color:#ffffff}
 body.plus-mode #oh .btn.o{background:none;color:var(--plus2);border-color:var(--plus)}
+
 header{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #00748c;background:var(--p);gap:6px;flex:none}
 header h2{letter-spacing:3px;font-size:16px;flex:1;text-align:center}
 button,input,select,textarea{font-family:inherit;font-size:14px;color:var(--c);outline:none}
@@ -30,6 +30,7 @@ button,input,select,textarea{font-family:inherit;font-size:14px;color:var(--c);o
 .ib:active{background:#073144}
 .ib.live{border-color:var(--g);color:var(--g);font-weight:700;font-size:11px;letter-spacing:1px}
 .ib.plus{border-color:var(--plus);color:var(--plus2);font-weight:700;font-size:11px;letter-spacing:1px}
+
 #hud{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--p);border-bottom:1px solid #12627a;flex:none}
 #rx{width:104px;height:104px;flex:none}
 #st{flex:1;font-size:12px;line-height:1.45;font-weight:700}
@@ -37,14 +38,18 @@ button,input,select,textarea{font-family:inherit;font-size:14px;color:var(--c);o
 #st .v{font-size:14px}
 .bar{height:5px;background:#27313a;margin:2px 0 5px}.bar i{display:block;height:100%;background:var(--c);width:0;transition:width .6s}
 #stat{color:var(--g)}
+
 #scrBar{display:none;align-items:center;justify-content:space-between;padding:6px 12px;background:#06231a;border-bottom:1px solid var(--g);font-size:12px;color:var(--g);flex:none}
 #scrBar.on{display:flex}
+
 #dtBar{display:flex;justify-content:space-between;padding:4px 14px;font-size:12px;background:var(--p);border-bottom:1px solid #00748c;flex:none}
+
 #imgDraft{display:none;align-items:center;gap:10px;padding:6px 12px;background:#061521;border-top:1px solid #12627a;flex:none}
 #imgDraft.on{display:flex}
 #imgDraft img{width:46px;height:46px;object-fit:cover;border-radius:4px;border:1px solid var(--c)}
 #imgDraft span{flex:1;font-size:12px;color:#b8f7ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #imgDraft button{background:#290812;border:1px solid var(--r);color:#ff9eb0;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer}
+
 #chat{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;user-select:text;-webkit-user-select:text}
 .mw{display:flex;flex-direction:column;max-width:88%;gap:4px}
 .mw.u{align-self:flex-end;align-items:flex-end}
@@ -57,6 +62,7 @@ button,input,select,textarea{font-family:inherit;font-size:14px;color:var(--c);o
 .acts{display:flex;gap:6px;opacity:.85;flex-wrap:wrap}
 .acts button{background:#061521;border:1px solid #155c70;color:#8ad8eb;font-size:11px;padding:2px 7px;border-radius:4px;cursor:pointer}
 body.plus-mode .acts button{background:#1b0b2e;border-color:#7e22ce;color:var(--plus2)}
+
 #inlinePlusBox{display:none;flex-direction:column;gap:8px;width:100%;max-width:560px;padding:12px;border-radius:8px;border:1px solid var(--plus);background:#150826;color:#f5eaff}
 #inlinePlusBox.on{display:flex}
 #inlinePlusBox label{font-size:11px;color:#d8b4fe;display:block;margin-bottom:3px}
@@ -64,14 +70,17 @@ body.plus-mode .acts button{background:#1b0b2e;border-color:#7e22ce;color:var(--
 .p-row{display:flex;gap:6px;flex-wrap:wrap}
 .p-btn{padding:8px 10px;border-radius:6px;border:0;background:var(--plus);color:#fff;font-weight:700;font-size:12px;cursor:pointer;flex:1}
 .p-btn.sec{background:#230d3d;color:var(--plus2);border:1px solid #7e22ce}
+
 #quickChips{display:flex;gap:8px;padding:8px 10px;background:var(--p);border-top:1px solid #00748c;flex:none;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;border-bottom:1px solid rgba(0, 217, 255, 0.1);}
 #quickChips::-webkit-scrollbar{display:none}
 .chip{background:#061521;border:1px solid #12627a;color:#8ad8eb;font-size:12px;padding:6px 12px;border-radius:20px;cursor:pointer;white-space:nowrap;font-weight:600;transition:all 0.2s;}
 .chip:active{background:var(--c);color:#000;}
 body.plus-mode .chip{border-color:#7e22ce;color:var(--plus2);background:#1b0b2e;}
+
 #bar{display:flex;gap:6px;padding:10px;background:var(--p);border-top:1px solid #00748c;flex:none}
 #in{flex:1;min-width:0;padding:10px;background:#07121d;border:1px solid var(--c);color:#fff;border-radius:6px;user-select:text;-webkit-user-select:text}
 #go{padding:0 13px;background:var(--c);color:#000;border:0;border-radius:6px;font-weight:700;cursor:pointer}
+
 .ov{position:fixed;inset:0;background:rgba(2,7,13,.98);display:none;flex-direction:column;gap:12px;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px);overflow-y:auto;z-index:9;user-select:text;-webkit-user-select:text}
 .ov.on{display:flex}
 .ov h3{letter-spacing:3px}
@@ -82,6 +91,7 @@ body.plus-mode .chip{border-color:#7e22ce;color:var(--plus2);background:#1b0b2e;
 .btn.r{background:var(--r);color:#fff}
 .row{display:flex;justify-content:space-between;gap:10px;padding:12px;border:1px solid #12627a;border-radius:6px;background:var(--p)}
 .row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row b{color:#ff6b6b;padding:0 6px;cursor:pointer}
+
 #liveOv{align-items:center;justify-content:space-between;text-align:center;z-index:12;background:radial-gradient(circle at 50% 45%,#082c3d,#02070d 75%)}
 #liveTop{width:100%;display:flex;justify-content:space-between;align-items:center}
 #livePrev{width:100%;max-height:170px;object-fit:contain;border:1px solid var(--g);border-radius:8px;display:none;background:#000}
@@ -235,8 +245,8 @@ const $=i=>document.getElementById(i),LS=localStorage;
 const ld=(k,d)=>{try{return JSON.parse(LS[k])??d}catch{return d}},sv=(k,v)=>LS[k]=JSON.stringify(v);
 
 // 🛡️ БЕЗОПАСНОСТЬ: URL бота вынесен сюда. Меняй его здесь после деплоя на Render.
-// Пример: 'https://jarvis-bot.onrender.com/verify'
-const BOT_VERIFY_URL = 'https://ВАШ_БОТ_НА_RENDER.com/verify'; 
+// ✅ ОБНОВЛЕНО: Твой реальный URL с Render
+const BOT_VERIFY_URL = 'https://jarvis-2pto.onrender.com/verify'; 
 
 const GEMINI_MODELS=[
  'gemini-3.8-flash',
