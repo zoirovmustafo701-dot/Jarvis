@@ -244,8 +244,7 @@ body.plus-mode .chip{border-color:#7e22ce;color:var(--plus2);background:#1b0b2e;
 const $=i=>document.getElementById(i),LS=localStorage;
 const ld=(k,d)=>{try{return JSON.parse(LS[k])??d}catch{return d}},sv=(k,v)=>LS[k]=JSON.stringify(v);
 
-// 🛡️ БЕЗОПАСНОСТЬ: URL бота вынесен сюда. Меняй его здесь после деплоя на Render.
-// ✅ ОБНОВЛЕНО: Твой реальный URL с Render
+// ✅ ИСПРАВЛЕНО: ПРАВИЛЬНАЯ ССЫЛКА НА ТВОЕГО БОТА В RENDER
 const BOT_VERIFY_URL = 'https://jarvis-2pto.onrender.com/verify'; 
 
 const GEMINI_MODELS=[
