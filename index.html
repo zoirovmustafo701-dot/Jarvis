@@ -70,6 +70,7 @@ body.plus-mode .acts button{background:#1b0b2e;border-color:#7e22ce;color:var(--
 .p-row{display:flex;gap:6px;flex-wrap:wrap}
 .p-btn{padding:8px 10px;border-radius:6px;border:0;background:var(--plus);color:#fff;font-weight:700;font-size:12px;cursor:pointer;flex:1}
 .p-btn.sec{background:#230d3d;color:var(--plus2);border:1px solid #7e22ce}
+.p-btn:disabled{opacity:.55;cursor:wait}
 
 #quickChips{display:flex;gap:8px;padding:8px 10px;background:var(--p);border-top:1px solid #00748c;flex:none;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;border-bottom:1px solid rgba(0, 217, 255, 0.1);}
 #quickChips::-webkit-scrollbar{display:none}
@@ -134,15 +135,16 @@ body.plus-mode .chip{border-color:#7e22ce;color:var(--plus2);background:#1b0b2e;
    <b style="color:var(--plus2)">★ JARVIS PLUS (1 МЕСЯЦ · 30 СОМОНИ / 3$)</b>
    <span id="plusStatusText" style="font-size:11px;color:#e9d5ff">Не подключен</span>
   </div>
-  <div style="font-size:12px;color:#e9d5ff;line-height:1.45">
+  <div style="font-size:12px;color:#e9d5ff;line-height:1.5">
    1. Переведите <b>30 сомони (3$)</b> на номер: <b id="chatPayInfo">+992931580081 (Душанбе Сити)</b><br>
-   2. Каждый ключ <b>JPLUS-XXXXXXXX</b> одноразовый и действует только 1 раз.<br>
+   2. Отправьте фото чека боту: <a id="botLink" href="#" target="_blank" rel="noopener" style="color:var(--plus2);text-decoration:none"><b id="botLinkText">@бот</b></a> 👈<br>
+   3. Получите одноразовый ключ <b>JPLUS-XXXXXXXX</b>, вставьте его ниже и нажмите «Активировать». Ключ действует только 1 раз.<br>
    Срок подписки: <b id="chatSubExp">Нет</b>
   </div>
   <div>
    <label>ОДНОРАЗОВЫЙ КЛЮЧ (ТОЛЬКО ДЛЯ 1 АКТИВАЦИИ)</label>
    <div class="p-row">
-    <input id="chatPlusCode" placeholder="Вставьте ключ JPLUS-...">
+    <input id="chatPlusCode" placeholder="Вставьте ключ JPLUS-..." autocomplete="off" autocapitalize="characters">
     <button class="p-btn" id="chatActivateBtn">Активировать на 1 мес</button>
    </div>
   </div>
@@ -182,11 +184,11 @@ body.plus-mode .chip{border-color:#7e22ce;color:var(--plus2);background:#1b0b2e;
 </div>
 
 <div id="quickChips">
- <button class="chip" onclick="send('время')">⏱ Время</button>
- <button class="chip" onclick="send('погода')">☁ Погода</button>
- <button class="chip" onclick="send('включи фонарик')">🔦 Свет</button>
- <button class="chip" onclick="startLive()">◉ LIVE</button>
- <button class="chip" onclick="document.getElementById('bplus').click()">★ PLUS</button>
+ <button class="chip" data-send="время">⏱ Время</button>
+ <button class="chip" data-send="погода">☁ Погода</button>
+ <button class="chip" data-send="включи фонарик">🔦 Свет</button>
+ <button class="chip" data-act="live">◉ LIVE</button>
+ <button class="chip" data-act="plus">★ PLUS</button>
 </div>
 
 <div id="bar">
@@ -241,564 +243,589 @@ body.plus-mode .chip{border-color:#7e22ce;color:var(--plus2);background:#1b0b2e;
 <canvas id="mediaCv" width="640" height="360" style="display:none"></canvas>
 
 <script>
-const $=i=>document.getElementById(i),LS=localStorage;
-const ld=(k,d)=>{try{return JSON.parse(LS[k])??d}catch{return d}},sv=(k,v)=>LS[k]=JSON.stringify(v);
+/* ===== Настройки (меняются в одном месте) ===== */
+const BOT_USERNAME = 'jarvis5_plus_bot'; // ← Имя бота БЕЗ символа @
+const BOT_VERIFY_URL = 'https://jarvis-2pto.onrender.com/verify';
+const VERIFY_TIMEOUT_MS = 20000;
 
-// ✅ ИСПРАВЛЕНО: ПРАВИЛЬНАЯ ССЫЛКА НА ТВОЕГО БОТА В RENDER
-const BOT_VERIFY_URL = 'https://jarvis-2pto.onrender.com/verify'; 
+/* ===== Отказоустойчивые хелперы ===== */
+const _dummies = {};
+const $ = id => document.getElementById(id) || _dummies[id] || (_dummies[id] = document.createElement('div'));
+const safeText = (id, v) => { try { $(id).textContent = v } catch (e) { console.warn('safeText', id, e) } };
+const safeVal = (id, v) => { try { $(id).value = v } catch (e) { console.warn('safeVal', id, e) } };
+const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el[ev] = fn; else console.warn('нет элемента #' + id) };
+const guard = (name, fn) => { try { return fn() } catch (e) { console.error('[JARVIS] ' + name, e) } };
+window.addEventListener('error', e => console.error('[JARVIS] runtime', e.message));
+window.addEventListener('unhandledrejection', e => console.error('[JARVIS] promise', e.reason));
 
-const GEMINI_MODELS=[
- 'gemini-3.8-flash',
- 'gemini-3.7-flash',
- 'gemini-3.6-flash',
- 'gemini-3.5-flash',
- 'gemini-2.5-flash',
- 'gemini-flash-latest',
- 'gemini-2.5-pro',
- 'gemini-3.1-pro-preview',
- 'gemini-3-pro-preview',
- 'gemini-2.5-flash-lite'
+const LS = localStorage;
+const ld = (k, d) => { try { return JSON.parse(LS[k]) ?? d } catch { return d } };
+const sv = (k, v) => { try { LS[k] = JSON.stringify(v) } catch (e) { console.warn('LS', e) } };
+
+const GEMINI_MODELS = [
+ 'gemini-3.8-flash','gemini-3.7-flash','gemini-3.6-flash','gemini-3.5-flash',
+ 'gemini-2.5-flash','gemini-flash-latest','gemini-2.5-pro',
+ 'gemini-3.1-pro-preview','gemini-3-pro-preview','gemini-2.5-flash-lite'
 ];
 
-const P={
+const P = {
  gemini:{n:'Google Gemini (каскад + экран)',m:GEMINI_MODELS[0]},
  openai:{n:'OpenAI (поддерживает экран)',u:'https://api.openai.com/v1',m:'gpt-4o-mini'},
  anthropic:{n:'Anthropic Claude (поддерживает экран)',m:'claude-haiku-4-5-20251001'},
  groq:{n:'Groq',u:'https://api.groq.com/openai/v1',m:'llama-3.1-8b-instant'},
  openrouter:{n:'OpenRouter',u:'https://openrouter.ai/api/v1',m:'openai/gpt-4o-mini'},
  deepseek:{n:'DeepSeek',u:'https://api.deepseek.com',m:'deepseek-chat'},
- custom:{n:'Свой (любой OpenAI-совместимый)',u:'',m:''}};
+ custom:{n:'Свой (любой OpenAI-совместимый)',u:'',m:''}
+};
 
-const DEFAULT_PAY_INFO='+992931580081 (Душанбе Сити) · 30 сомони (3$)';
+const DEFAULT_PAY_INFO = '+992931580081 (Душанбе Сити)';
+const cleanPay = s => ((s || DEFAULT_PAY_INFO) + '').replace(/\s*[·,;|-]?\s*30\s*сомони.*$/i, '').trim() || DEFAULT_PAY_INFO;
 
-let S={
+let S = {
  prov:'gemini',key:'',model:'',url:'',voice:true,
  subUntil:0,plusKey:'',payInfo:DEFAULT_PAY_INFO,
- imgApiKey:'',imgApiUrl:'',
- vidApiKey:'',vidApiUrl:'',
+ imgApiKey:'',imgApiUrl:'',vidApiKey:'',vidApiUrl:'',
  ...ld('j_s',{})
 };
-let usedKeys=ld('j_used_keys',{});
-if(!LS.j_plus_strict_v5){S.subUntil=0;S.plusKey='';S.payInfo=DEFAULT_PAY_INFO;usedKeys={};sv('j_used_keys',{});sv('j_plus_strict_v5',1);sv('j_s',S)}
+S.payInfo = cleanPay(S.payInfo);
+let usedKeys = ld('j_used_keys', {});
+if (!LS.j_plus_strict_v5) { S.subUntil = 0; S.plusKey = ''; S.payInfo = DEFAULT_PAY_INFO; usedKeys = {}; sv('j_used_keys', {}); sv('j_plus_strict_v5', 1); sv('j_s', S) }
 
-let chats=ld('j_c',[]),
-    mem=ld('j_m',[]),
-    customCmds=ld('j_cmds',{}),
-    cur=chats[0]?.id,
-    wait=false,
-    attachedImg=null,
-    torchTrack=null,
-    torchStream=null;
+let chats = ld('j_c', []),
+    mem = ld('j_m', []),
+    customCmds = ld('j_cmds', {}),
+    cur = chats[0]?.id,
+    wait = false,
+    attachedImg = null,
+    torchTrack = null,
+    torchStream = null;
 
-const chat=()=>chats.find(c=>c.id===cur);
-const save=()=>{chats=chats.slice(0,50);sv('j_c',chats);sv('j_m',mem);sv('j_s',S);sv('j_cmds',customCmds);sv('j_used_keys',usedKeys)};
-const show=(i,v)=>$(i).classList.toggle('on',!!v);
-const isPlusActive=()=>Boolean(S.plusKey)&&Number(S.subUntil||0)>Date.now();
+const chat = () => chats.find(c => c.id === cur);
+const save = () => { chats = chats.slice(0, 50); sv('j_c', chats); sv('j_m', mem); sv('j_s', S); sv('j_cmds', customCmds); sv('j_used_keys', usedKeys) };
+const show = (i, v) => $(i).classList.toggle('on', !!v);
+const isPlusActive = () => Boolean(S.plusKey) && Number(S.subUntil || 0) > Date.now();
 
-function syncPlusUI(){
- const active=isPlusActive();
- document.body.classList.toggle('plus-mode',active);
- $('hdrTitle').textContent=active?'J.A.R.V.I.S. PLUS':'J.A.R.V.I.S.';
- $('coreLbl').textContent=active?'PLUS CORE (30D)':'AI CORE';
- $('plusStatusText').textContent=active?'Подключен на 1 месяц':'Не подключен';
- $('chatPayInfo').textContent=S.payInfo||DEFAULT_PAY_INFO;
- $('chatSubExp').textContent=active?new Date(S.subUntil).toLocaleDateString('ru-RU'):'Нет';
- $('chatImgKey').value=S.imgApiKey||'';
- $('chatImgUrl').value=S.imgApiUrl||'';
- $('chatVidKey').value=S.vidApiKey||'';
- $('chatVidUrl').value=S.vidApiUrl||'';
+// 🛠️ ИСПРАВЛЕНИЕ ССЫЛКИ НА БОТА (РАБОТАЕТ В WEBVIEW)
+function syncBotLink() {
+ const a = $('botLink');
+ const cleanUser = BOT_USERNAME.replace('@', ''); // Гарантируем, что в URL нет @
+ a.href = 'https://t.me/' + cleanUser;
+ a.target = '_blank'; a.rel = 'noopener';
+ a.style.color = 'var(--plus2)';
+ a.style.cursor = 'pointer';
+ safeText('botLinkText', '@' + cleanUser);
+ 
+ // Принудительный обработчик для Android WebView
+ a.onclick = function(e) {
+  e.preventDefault();
+  // 1. Сначала пробуем открыть через приложение Telegram (самый надежный способ)
+  window.location.href = 'tg://resolve?domain=' + cleanUser;
+  // 2. Если приложения нет, через полсекунды открываем веб-версию
+  setTimeout(() => {
+   window.open('https://t.me/' + cleanUser, '_blank');
+  }, 500);
+ };
 }
-syncPlusUI();
 
-function saveChatPlusFields(){
- S.imgApiKey=$('chatImgKey').value.trim();
- S.imgApiUrl=$('chatImgUrl').value.trim();
- S.vidApiKey=$('chatVidKey').value.trim();
- S.vidApiUrl=$('chatVidUrl').value.trim();
+function syncPlusUI() {
+ const active = isPlusActive();
+ document.body.classList.toggle('plus-mode', active);
+ safeText('hdrTitle', active ? 'J.A.R.V.I.S. PLUS' : 'J.A.R.V.I.S.');
+ safeText('coreLbl', active ? 'PLUS CORE (30D)' : 'AI CORE');
+ safeText('plusStatusText', active ? 'Подключен на 1 месяц' : 'Не подключен');
+ safeText('chatPayInfo', S.payInfo || DEFAULT_PAY_INFO);
+ safeText('chatSubExp', active ? new Date(S.subUntil).toLocaleDateString('ru-RU') : 'Нет');
+ safeVal('chatImgKey', S.imgApiKey || '');
+ safeVal('chatImgUrl', S.imgApiUrl || '');
+ safeVal('chatVidKey', S.vidApiKey || '');
+ safeVal('chatVidUrl', S.vidApiUrl || '');
+ syncBotLink();
+}
+guard('syncPlusUI', syncPlusUI);
+
+function saveChatPlusFields() {
+ S.imgApiKey = $('chatImgKey').value.trim();
+ S.imgApiUrl = $('chatImgUrl').value.trim();
+ S.vidApiKey = $('chatVidKey').value.trim();
+ S.vidApiUrl = $('chatVidUrl').value.trim();
  save();
 }
 
-async function activateOneMonthSub(){
- const code=$('chatPlusCode').value.trim().toUpperCase();
- if(!/^JPLUS-[A-F0-9]{8}$/.test(code)){
-  return alert('Введите корректный одноразовый ключ формата JPLUS-XXXXXXXX.');
- }
- if(usedKeys[code]){
-  $('chatPlusLog').textContent='Этот ключ уже был использован и не может быть активирован повторно.';
+async function verifyOnce(code) {
+ const ctl = new AbortController();
+ const t = setTimeout(() => ctl.abort(), VERIFY_TIMEOUT_MS);
+ try {
+  const r = await fetch(BOT_VERIFY_URL, {
+   method: 'POST',
+   headers: {'Content-Type': 'application/json'},
+   body: JSON.stringify({code}),
+   signal: ctl.signal
+  });
+  const d = await r.json().catch(() => ({}));
+  return {r, d};
+ } finally { clearTimeout(t) }
+}
+
+async function activateOneMonthSub() {
+ const btn = $('chatActivateBtn'), log = $('chatPlusLog');
+ const code = $('chatPlusCode').value.trim().toUpperCase();
+ if (!/^JPLUS-[A-F0-9]{8}$/.test(code)) return alert('Введите корректный одноразовый ключ формата JPLUS-XXXXXXXX.');
+ if (usedKeys[code]) {
+  log.textContent = 'Этот ключ уже был использован и не может быть активирован повторно.';
   return alert('Этот ключ уже был использован!');
  }
- $('chatPlusLog').textContent='Проверяю одноразовый ключ на сервере бота...';
- try{
-  const r=await fetch(BOT_VERIFY_URL,{
-   method:'POST',
-   headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({code})
-  });
-  const d=await r.json();
-  if(!r.ok||!d.ok){
-   if(d.error&&d.error.includes('использован'))usedKeys[code]=true;
-   save();
-   $('chatPlusLog').textContent=d.error||'Ключ не принят.';
-   return alert(d.error||'Ключ не принят.');
+ btn.disabled = true;
+ log.textContent = 'Проверяю одноразовый ключ на сервере бота...';
+ const wakeTimer = setTimeout(() => { log.textContent = 'Сервер просыпается, подождите...' }, 3000);
+ try {
+  let res = null, lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+   try { res = await verifyOnce(code); break }
+   catch (e) { lastErr = e; if (attempt === 0) log.textContent = 'Сервер просыпается, подождите...' }
   }
-  usedKeys[code]=true;
-  S.plusKey=code;
-  S.subUntil=d.expires_at?new Date(d.expires_at).getTime():(Date.now()+30*24*60*60*1000);
-  $('chatPlusCode').value='';
+  if (!res) {
+   log.textContent = lastErr && lastErr.name === 'AbortError'
+    ? 'Сервер не ответил за 20 секунд (он мог ещё не проснуться). Подождите минуту и нажмите «Активировать» снова.'
+    : 'Не удалось связаться с сервером бота. Проверьте интернет и повторите попытку.';
+   return;
+  }
+  const {r, d} = res;
+  if (!r.ok || !d.ok) {
+   const msg = d.error || ('Ключ не принят (код ' + r.status + ').');
+   if (/использован/i.test(msg)) { usedKeys[code] = true; save() }
+   log.textContent = msg;
+   return alert(msg);
+  }
+  usedKeys[code] = true;
+  S.plusKey = code;
+  const exp = d.expires_at ? new Date(d.expires_at).getTime() : NaN;
+  S.subUntil = Number.isFinite(exp) ? exp : Date.now() + 30 * 24 * 60 * 60 * 1000;
+  $('chatPlusCode').value = '';
   saveChatPlusFields();
   syncPlusUI();
-  $('chatPlusLog').textContent='Одноразовый ключ принят! JARVIS PLUS подключен на 1 месяц.';
- }catch(e){
-  $('chatPlusLog').textContent='Не удалось связаться с сервером бота. Проверьте интернет или URL бота.';
+  log.textContent = 'Одноразовый ключ принят! JARVIS PLUS подключен на 1 месяц.';
+ } catch (e) {
+  console.error(e);
+  log.textContent = 'Ошибка активации: ' + (e.message || e);
+ } finally {
+  clearTimeout(wakeTimer);
+  btn.disabled = false;
  }
 }
 
-function resetPlusSub(){
- S.subUntil=0;
- S.plusKey='';
- saveChatPlusFields();
- syncPlusUI();
- $('chatPlusLog').textContent='Подписка PLUS сброшена. Повторно активировать уже использованный ключ нельзя.';
+function resetPlusSub() {
+ S.subUntil = 0; S.plusKey = '';
+ saveChatPlusFields(); syncPlusUI();
+ $('chatPlusLog').textContent = 'Подписка PLUS сброшена. Повторно активировать уже использованный ключ нельзя.';
 }
 
-async function setTorch(enabled){
- try{
-  if(enabled){
-   if(!torchStream){
-    torchStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',advanced:[{torch:true}]}});
-    torchTrack=torchStream.getVideoTracks()[0];
+async function setTorch(enabled) {
+ try {
+  if (enabled) {
+   if (!torchStream) {
+    torchStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment', advanced: [{torch: true}]}});
+    torchTrack = torchStream.getVideoTracks()[0];
    }
-   if(torchTrack?.applyConstraints){
-    await torchTrack.applyConstraints({advanced:[{torch:true}]});
-    return'Фонарик включён, сэр.';
+   if (torchTrack?.applyConstraints) {
+    await torchTrack.applyConstraints({advanced: [{torch: true}]});
+    return 'Фонарик включён, сэр.';
    }
-  }else{
-   if(torchTrack?.applyConstraints){
-    try{await torchTrack.applyConstraints({advanced:[{torch:false}]})}catch{}
-   }
-   if(torchStream){torchStream.getTracks().forEach(t=>t.stop());torchStream=null;torchTrack=null}
-   return'Фонарик выключен, сэр.';
+   throw Error('no torch');
+  } else {
+   if (torchTrack?.applyConstraints) { try { await torchTrack.applyConstraints({advanced: [{torch: false}]}) } catch {} }
+   if (torchStream) { torchStream.getTracks().forEach(t => t.stop()); torchStream = null; torchTrack = null }
+   return 'Фонарик выключен, сэр.';
   }
- }catch(e){
+ } catch (e) {
   return enabled
-   ?'Команда «включи фонарик» выполнена, сэр. Если вспышка на устройстве управляется системой, включите фонарик в шторке Android.'
-   :'Команда «выключи фонарик» выполнена, сэр.';
+   ? 'Команда «включи фонарик» выполнена, сэр. Если вспышка на устройстве управляется системой, включите фонарик в шторке Android.'
+   : 'Команда «выключи фонарик» выполнена, сэр.';
  }
 }
 
-function setAttachedImg(dataUrl,name='Изображение'){
- attachedImg=dataUrl;
- if(dataUrl){
-  $('imgDraftThumb').src=dataUrl;
-  $('imgDraftName').textContent=name;
+function setAttachedImg(dataUrl, name = 'Изображение') {
+ attachedImg = dataUrl;
+ if (dataUrl) {
+  $('imgDraftThumb').src = dataUrl;
+  $('imgDraftName').textContent = name;
   $('imgDraft').classList.add('on');
- }else{
-  $('imgDraftThumb').src='';
-  $('imgDraftName').textContent='';
+ } else {
+  $('imgDraftThumb').removeAttribute('src');
+  $('imgDraftName').textContent = '';
   $('imgDraft').classList.remove('on');
-  $('imgFile').value='';
+  $('imgFile').value = '';
  }
 }
-$('imgBtn').onclick=()=>$('imgFile').click();
-$('imgDraftDel').onclick=()=>setAttachedImg(null);
-$('imgFile').onchange=e=>{
- const file=e.target.files?.[0];
- if(!file)return;
- const reader=new FileReader();
- reader.onload=()=>{
-  const im=new Image();
-  im.onload=()=>{
-   const c=$('snapCv'),maxW=1024,sc=Math.min(1,maxW/im.width);
-   c.width=Math.max(1,Math.round(im.width*sc));
-   c.height=Math.max(1,Math.round(im.height*sc));
-   c.getContext('2d').drawImage(im,0,0,c.width,c.height);
-   setAttachedImg(c.toDataURL('image/jpeg',0.78),file.name);
+on('imgBtn', 'onclick', () => $('imgFile').click());
+on('imgDraftDel', 'onclick', () => setAttachedImg(null));
+on('imgFile', 'onchange', e => {
+ const file = e.target.files?.[0];
+ if (!file) return;
+ const reader = new FileReader();
+ reader.onload = () => {
+  const im = new Image();
+  im.onload = () => {
+   const c = $('snapCv'), maxW = 1024, sc = Math.min(1, maxW / im.width);
+   c.width = Math.max(1, Math.round(im.width * sc));
+   c.height = Math.max(1, Math.round(im.height * sc));
+   c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+   setAttachedImg(c.toDataURL('image/jpeg', 0.78), file.name);
   };
-  im.src=reader.result;
+  im.src = reader.result;
  };
  reader.readAsDataURL(file);
-};
+});
 
-let scrStream=null;
-async function toggleScreen(){
- if(scrStream){stopScreen();return}
- try{
-  if(navigator.mediaDevices?.getDisplayMedia){
-   scrStream=await navigator.mediaDevices.getDisplayMedia({video:{cursor:'always'},audio:false});
-  }else if(navigator.mediaDevices?.getUserMedia){
-   scrStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
-  }else return alert('Захват экрана или камеры не поддерживается на этом устройстве.');
-  $('hiddenVid').srcObject=scrStream;
-  $('livePrev').srcObject=scrStream;
-  $('livePrev').style.display='block';
+let scrStream = null;
+async function toggleScreen() {
+ if (scrStream) { stopScreen(); return }
+ try {
+  if (navigator.mediaDevices?.getDisplayMedia) {
+   scrStream = await navigator.mediaDevices.getDisplayMedia({video: {cursor: 'always'}, audio: false});
+  } else if (navigator.mediaDevices?.getUserMedia) {
+   scrStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}, audio: false});
+  } else return alert('Захват экрана или камеры не поддерживается на этом устройстве.');
+  $('hiddenVid').srcObject = scrStream;
+  $('livePrev').srcObject = scrStream;
+  $('livePrev').style.display = 'block';
   $('scrBar').classList.add('on');
-  $('scrBtn').style.borderColor='var(--g)';
+  $('scrBtn').style.borderColor = 'var(--g)';
   $('liveScr').classList.add('act');
-  $('liveScrTag').textContent='● ЭКРАН АКТИВЕН';
-  scrStream.getVideoTracks()[0].onended=stopScreen;
- }catch(e){console.warn(e)}
+  $('liveScrTag').textContent = '● ЭКРАН АКТИВЕН';
+  scrStream.getVideoTracks()[0].onended = stopScreen;
+ } catch (e) { console.warn(e) }
 }
-function stopScreen(){
- if(scrStream){scrStream.getTracks().forEach(t=>t.stop());scrStream=null}
- $('hiddenVid').srcObject=null;$('livePrev').srcObject=null;$('livePrev').style.display='none';
- $('scrBar').classList.remove('on');$('scrBtn').style.borderColor='var(--c)';
- $('liveScr').classList.remove('act');$('liveScrTag').textContent='';
+function stopScreen() {
+ if (scrStream) { scrStream.getTracks().forEach(t => t.stop()); scrStream = null }
+ $('hiddenVid').srcObject = null; $('livePrev').srcObject = null; $('livePrev').style.display = 'none';
+ $('scrBar').classList.remove('on'); $('scrBtn').style.borderColor = 'var(--c)';
+ $('liveScr').classList.remove('act'); $('liveScrTag').textContent = '';
 }
-function grabFrame(){
- if(!scrStream)return null;
- const v=$('hiddenVid');if(!v.videoWidth)return null;
- const c=$('snapCv'),scale=Math.min(1,1024/v.videoWidth);
- c.width=Math.round(v.videoWidth*scale);c.height=Math.round(v.videoHeight*scale);
- c.getContext('2d').drawImage(v,0,0,c.width,c.height);
- return c.toDataURL('image/jpeg',0.72);
+function grabFrame() {
+ if (!scrStream) return null;
+ const v = $('hiddenVid'); if (!v.videoWidth) return null;
+ const c = $('snapCv'), scale = Math.min(1, 1024 / v.videoWidth);
+ c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+ c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+ return c.toDataURL('image/jpeg', 0.72);
 }
-$('scrBtn').onclick=toggleScreen;$('scrStop').onclick=stopScreen;$('liveScr').onclick=toggleScreen;
+on('scrBtn', 'onclick', toggleScreen);
+on('scrStop', 'onclick', stopScreen);
+on('liveScr', 'onclick', toggleScreen);
 
-function renderVisualArt(ctx,w,h,prompt,frameIdx=0){
- const g=ctx.createLinearGradient(0,0,w,h);
- g.addColorStop(0,'#120424');g.addColorStop(0.5,'#2e0b52');g.addColorStop(1,'#042329');
- ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
- ctx.strokeStyle='rgba(0,245,160,0.4)';ctx.lineWidth=2;
- for(let r=40;r<=150;r+=35){
-  ctx.beginPath();ctx.arc(w/2,h/2,r+((frameIdx*2)%12),0,Math.PI*2);ctx.stroke();
- }
- const rot=(frameIdx*0.08)%(Math.PI*2);
- ctx.save();ctx.translate(w/2,h/2);ctx.rotate(rot);
- ctx.strokeStyle='#c084fc';ctx.lineWidth=3;
- for(let i=0;i<8;i++){
-  ctx.beginPath();ctx.moveTo(0,-95);ctx.lineTo(0,-65);ctx.stroke();
-  ctx.rotate(Math.PI/4);
- }
+function renderVisualArt(ctx, w, h, prompt, frameIdx = 0) {
+ const g = ctx.createLinearGradient(0, 0, w, h);
+ g.addColorStop(0, '#120424'); g.addColorStop(0.5, '#2e0b52'); g.addColorStop(1, '#042329');
+ ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+ ctx.strokeStyle = 'rgba(0,245,160,0.4)'; ctx.lineWidth = 2;
+ for (let r = 40; r <= 150; r += 35) { ctx.beginPath(); ctx.arc(w / 2, h / 2, r + ((frameIdx * 2) % 12), 0, Math.PI * 2); ctx.stroke() }
+ const rot = (frameIdx * 0.08) % (Math.PI * 2);
+ ctx.save(); ctx.translate(w / 2, h / 2); ctx.rotate(rot);
+ ctx.strokeStyle = '#c084fc'; ctx.lineWidth = 3;
+ for (let i = 0; i < 8; i++) { ctx.beginPath(); ctx.moveTo(0, -95); ctx.lineTo(0, -65); ctx.stroke(); ctx.rotate(Math.PI / 4) }
  ctx.restore();
- ctx.fillStyle='#00f5a0';ctx.font='bold 18px Consolas,monospace';ctx.textAlign='center';
- ctx.fillText('J.A.R.V.I.S. PLUS',w/2,36);
- ctx.fillStyle='#f5eaff';ctx.font='15px Consolas,monospace';
- ctx.fillText((prompt||'Сцена JARVIS PLUS').slice(0,56),w/2,h-26);
+ ctx.fillStyle = '#00f5a0'; ctx.font = 'bold 18px Consolas,monospace'; ctx.textAlign = 'center';
+ ctx.fillText('J.A.R.V.I.S. PLUS', w / 2, 36);
+ ctx.fillStyle = '#f5eaff'; ctx.font = '15px Consolas,monospace';
+ ctx.fillText((prompt || 'Сцена JARVIS PLUS').slice(0, 56), w / 2, h - 26);
 }
 
-async function generatePlusImage(prompt){
+const PLUS_NEEDED = 'Подключите JARVIS PLUS на 1 месяц (30 сомони / 3$ на +992931580081 Душанбе Сити).';
+
+async function generatePlusImage(prompt) {
  saveChatPlusFields();
- if(!isPlusActive()){$('inlinePlusBox').classList.add('on');throw Error('Подключите JARVIS PLUS на 1 месяц (30 сомони / 3$ на +992931580081 Душанбе Сити).')}
- $('chatPlusLog').textContent='Генерирую картинку...';
- if(S.imgApiUrl&&S.imgApiKey){
-  try{
-   const r=await fetch(S.imgApiUrl,{
-    method:'POST',
-    headers:{'Content-Type':'application/json',Authorization:'Bearer '+S.imgApiKey},
-    body:JSON.stringify({prompt})
+ if (!isPlusActive()) { $('inlinePlusBox').classList.add('on'); throw Error(PLUS_NEEDED) }
+ $('chatPlusLog').textContent = 'Генерирую картинку...';
+ if (S.imgApiUrl && S.imgApiKey) {
+  try {
+   const r = await fetch(S.imgApiUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + S.imgApiKey},
+    body: JSON.stringify({prompt})
    });
-   const d=await r.json().catch(()=>({}));
-   const b64=d.data?.[0]?.b64_json;
-   const remoteUrl=d.data?.[0]?.url||d.url||d.image_url||(b64?'data:image/png;base64,'+b64:'');
-   if(r.ok&&remoteUrl){$('chatPlusLog').textContent='Картинка готова.';return remoteUrl}
-  }catch(e){console.warn(e)}
+   const d = await r.json().catch(() => ({}));
+   const b64 = d.data?.[0]?.b64_json;
+   const remoteUrl = d.data?.[0]?.url || d.url || d.image_url || (b64 ? 'data:image/png;base64,' + b64 : '');
+   if (r.ok && remoteUrl) { $('chatPlusLog').textContent = 'Картинка готова.'; return remoteUrl }
+  } catch (e) { console.warn(e) }
  }
- const c=$('mediaCv');c.width=640;c.height=360;
- renderVisualArt(c.getContext('2d'),640,360,prompt,7);
- $('chatPlusLog').textContent='Картинка готова.';
+ const c = $('mediaCv'); c.width = 640; c.height = 360;
+ renderVisualArt(c.getContext('2d'), 640, 360, prompt, 7);
+ $('chatPlusLog').textContent = 'Картинка готова.';
  return c.toDataURL('image/png');
 }
 
-async function generatePlusVideo(prompt){
+async function generatePlusVideo(prompt) {
  saveChatPlusFields();
- if(!isPlusActive()){$('inlinePlusBox').classList.add('on');throw Error('Подключите JARVIS PLUS на 1 месяц (30 сомони / 3$ на +992931580081 Душанбе Сити).')}
- $('chatPlusLog').textContent='Генерирую видео...';
- if(S.vidApiUrl){
-  try{
-   const r=await fetch(S.vidApiUrl,{
-    method:'POST',
-    headers:{'Content-Type':'application/json',...(S.vidApiKey?{Authorization:'Bearer '+S.vidApiKey}:{})},
-    body:JSON.stringify({prompt})
+ if (!isPlusActive()) { $('inlinePlusBox').classList.add('on'); throw Error(PLUS_NEEDED) }
+ $('chatPlusLog').textContent = 'Генерирую видео...';
+ if (S.vidApiUrl) {
+  try {
+   const r = await fetch(S.vidApiUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', ...(S.vidApiKey ? {Authorization: 'Bearer ' + S.vidApiKey} : {})},
+    body: JSON.stringify({prompt})
    });
-   const d=await r.json().catch(()=>({}));
-   const remoteUrl=d.video_url||d.url||d.data?.[0]?.url;
-   if(r.ok&&remoteUrl){$('chatPlusLog').textContent='Видео готово.';return remoteUrl}
-  }catch(e){console.warn(e)}
+   const d = await r.json().catch(() => ({}));
+   const remoteUrl = d.video_url || d.url || d.data?.[0]?.url;
+   if (r.ok && remoteUrl) { $('chatPlusLog').textContent = 'Видео готово.'; return remoteUrl }
+  } catch (e) { console.warn(e) }
  }
- if(typeof MediaRecorder!=='undefined'&&$('mediaCv').captureStream){
-  const c=$('mediaCv');c.width=480;c.height=270;
-  const ctx=c.getContext('2d');
-  const stream=c.captureStream(20);
-  const mime=['video/webm;codecs=vp9','video/webm','video/mp4'].find(m=>MediaRecorder.isTypeSupported(m))||'';
-  const rec=new MediaRecorder(stream,mime?{mimeType:mime}:{});
-  const chunks=[];
-  rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
-  const done=new Promise(res=>{rec.onstop=res});
+ if (typeof MediaRecorder !== 'undefined' && $('mediaCv').captureStream) {
+  const c = $('mediaCv'); c.width = 480; c.height = 270;
+  const ctx = c.getContext('2d');
+  const stream = c.captureStream(20);
+  const mime = ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'].find(m => MediaRecorder.isTypeSupported(m)) || '';
+  const rec = new MediaRecorder(stream, mime ? {mimeType: mime} : {});
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) };
+  const done = new Promise(res => { rec.onstop = res });
   rec.start();
-  for(let f=0;f<45;f++){
-   renderVisualArt(ctx,480,270,prompt,f);
-   await new Promise(r=>setTimeout(r,45));
-  }
+  for (let f = 0; f < 45; f++) { renderVisualArt(ctx, 480, 270, prompt, f); await new Promise(r => setTimeout(r, 45)) }
   rec.stop();
   await done;
-  $('chatPlusLog').textContent='Видео готово.';
-  return URL.createObjectURL(new Blob(chunks,{type:mime||'video/webm'}));
+  $('chatPlusLog').textContent = 'Видео готово.';
+  return URL.createObjectURL(new Blob(chunks, {type: mime || 'video/webm'}));
  }
  return await generatePlusImage(prompt);
 }
 
-function appendMediaToChat(title,mediaObj){
- if(!chat())newChat();
- const c=chat();
- c.msgs.push({r:'assistant',t:title,...mediaObj});
- save();render();
+function appendMediaToChat(title, mediaObj) {
+ if (!chat()) newChat();
+ const c = chat();
+ c.msgs.push({r: 'assistant', t: title, ...mediaObj});
+ save(); render();
 }
 
-$('bplus').onclick=()=>{syncPlusUI();$('inlinePlusBox').classList.toggle('on');$('chat').scrollTop=0};
-$('chatClosePlus').onclick=()=>$('inlinePlusBox').classList.remove('on');
-$('chatSavePlus').onclick=()=>{saveChatPlusFields();syncPlusUI();$('chatPlusLog').textContent='Настройки сохранены.'};
-$('chatResetPlus').onclick=resetPlusSub;
-$('chatActivateBtn').onclick=activateOneMonthSub;
-$('chatGenImg').onclick=async()=>{
- const p=$('chatMediaPrompt').value.trim()||'Картинка JARVIS PLUS';
- try{const url=await generatePlusImage(p);appendMediaToChat('Картинка: '+p,{img:url})}catch(e){$('chatPlusLog').textContent=e.message}
-};
-$('chatGenVid').onclick=async()=>{
- const p=$('chatMediaPrompt').value.trim()||'Видео JARVIS PLUS';
- try{
-  const url=await generatePlusVideo(p);
-  if(url.startsWith('blob:')||url.startsWith('http'))appendMediaToChat('Видео: '+p,{vid:url});
-  else appendMediaToChat('Кадр видео: '+p,{img:url});
- }catch(e){$('chatPlusLog').textContent=e.message}
-};
+const togglePlusBox = () => { syncPlusUI(); $('inlinePlusBox').classList.toggle('on'); $('chat').scrollTop = 0 };
+on('bplus', 'onclick', togglePlusBox);
+on('chatClosePlus', 'onclick', () => $('inlinePlusBox').classList.remove('on'));
+on('chatSavePlus', 'onclick', () => { saveChatPlusFields(); syncPlusUI(); $('chatPlusLog').textContent = 'Настройки сохранены.' });
+on('chatResetPlus', 'onclick', resetPlusSub);
+on('chatActivateBtn', 'onclick', activateOneMonthSub);
+on('chatGenImg', 'onclick', async () => {
+ const p = $('chatMediaPrompt').value.trim() || 'Картинка JARVIS PLUS';
+ try { const url = await generatePlusImage(p); appendMediaToChat('Картинка: ' + p, {img: url}) } catch (e) { $('chatPlusLog').textContent = e.message }
+});
+on('chatGenVid', 'onclick', async () => {
+ const p = $('chatMediaPrompt').value.trim() || 'Видео JARVIS PLUS';
+ try {
+  const url = await generatePlusVideo(p);
+  if (url.startsWith('blob:') || url.startsWith('http')) appendMediaToChat('Видео: ' + p, {vid: url});
+  else appendMediaToChat('Кадр видео: ' + p, {img: url});
+ } catch (e) { $('chatPlusLog').textContent = e.message }
+});
 
-function addMsg(m,idx){
- const w=document.createElement('div');w.className='mw '+(m.r==='user'?'u':'j');
- const b=document.createElement('div');b.className='m';b.textContent=m.t;
+function addMsg(m, idx) {
+ const w = document.createElement('div'); w.className = 'mw ' + (m.r === 'user' ? 'u' : 'j');
+ const b = document.createElement('div'); b.className = 'm'; b.textContent = m.t;
 
- if(m.img){
-  const imEl=document.createElement('img');
-  imEl.src=m.img;imEl.className='mimg';
-  b.appendChild(imEl);
- }
- if(m.vid){
-  const vEl=document.createElement('video');
-  vEl.src=m.vid;vEl.className='mvid';vEl.controls=true;vEl.playsInline=true;
-  b.appendChild(vEl);
- }
+ if (m.img) { const imEl = document.createElement('img'); imEl.src = m.img; imEl.className = 'mimg'; b.appendChild(imEl) }
+ if (m.vid) { const vEl = document.createElement('video'); vEl.src = m.vid; vEl.className = 'mvid'; vEl.controls = true; vEl.playsInline = true; b.appendChild(vEl) }
 
- const ac=document.createElement('div');ac.className='acts';
- const cp=document.createElement('button');cp.textContent='📋 Копировать';
- cp.onclick=()=>{navigator.clipboard?.writeText(m.t);cp.textContent='✓ Скопировано';setTimeout(()=>cp.textContent='📋 Копировать',1200)};
+ const ac = document.createElement('div'); ac.className = 'acts';
+ const cp = document.createElement('button'); cp.textContent = '📋 Копировать';
+ cp.onclick = () => { navigator.clipboard?.writeText(m.t); cp.textContent = '✓ Скопировано'; setTimeout(() => cp.textContent = '📋 Копировать', 1200) };
  ac.appendChild(cp);
 
- if(m.r==='user'&&typeof idx==='number'){
-  const ed=document.createElement('button');ed.textContent='✏ Изменить';
-  ed.onclick=()=>editMsg(idx);
-  ac.appendChild(ed);
+ if (m.r === 'user' && typeof idx === 'number') {
+  const ed = document.createElement('button'); ed.textContent = '✏ Изменить';
+  ed.onclick = () => editMsg(idx); ac.appendChild(ed);
  }
- if((m.img||m.vid)&&typeof idx==='number'){
-  const rmM=document.createElement('button');rmM.textContent='🗑 Убрать медиа';
-  rmM.onclick=()=>{
-   const c=chat();if(!c||!c.msgs[idx])return;
-   delete c.msgs[idx].img;delete c.msgs[idx].vid;
-   save();render();
-  };
+ if ((m.img || m.vid) && typeof idx === 'number') {
+  const rmM = document.createElement('button'); rmM.textContent = '🗑 Убрать медиа';
+  rmM.onclick = () => { const c = chat(); if (!c || !c.msgs[idx]) return; delete c.msgs[idx].img; delete c.msgs[idx].vid; save(); render() };
   ac.appendChild(rmM);
  }
 
- w.append(b,ac);$('chat').appendChild(w);$('chat').scrollTop=1e9;return b;
+ w.append(b, ac); $('chat').appendChild(w); $('chat').scrollTop = 1e9; return b;
 }
 
-function render(){
- const box=$('inlinePlusBox');
- Array.from($('chat').children).forEach(el=>{if(el!==box)el.remove()});
- const c=chat();
- if(!c||!c.msgs.length){
-  const w=document.createElement('div');w.className='mw j';
-  const b=document.createElement('div');b.className='m';b.textContent='Сэр, я на связи. Скажите «включи фонарик», «вибрация», «добавить команду ...», нажмите ★ PLUS в чате или запустите ◉ LIVE.';
-  w.appendChild(b);$('chat').appendChild(w);return;
+function render() {
+ const box = $('inlinePlusBox');
+ Array.from($('chat').children).forEach(el => { if (el !== box) el.remove() });
+ const c = chat();
+ if (!c || !c.msgs.length) {
+  const w = document.createElement('div'); w.className = 'mw j';
+  const b = document.createElement('div'); b.className = 'm';
+  b.textContent = 'Сэр, я на связи. Скажите «включи фонарик», «вибрация», «добавить команду ...», нажмите ★ PLUS в чате или запустите ◉ LIVE.';
+  w.appendChild(b); $('chat').appendChild(w); return;
  }
- c.msgs.forEach((m,i)=>addMsg(m,i));
+ c.msgs.forEach((m, i) => addMsg(m, i));
 }
 
-async function editMsg(idx){
- const c=chat();if(!c||!c.msgs[idx])return;
- const next=prompt('Измените ваше сообщение:',c.msgs[idx].t);
- if(next==null||!next.trim())return;
- const prevImg=c.msgs[idx].img||null;
- c.msgs=c.msgs.slice(0,idx);
- save();render();
- await send(next.trim(),false,prevImg);
+async function editMsg(idx) {
+ const c = chat(); if (!c || !c.msgs[idx]) return;
+ const next = prompt('Измените ваше сообщение:', c.msgs[idx].t);
+ if (next == null || !next.trim()) return;
+ const prevImg = c.msgs[idx].img || null;
+ c.msgs = c.msgs.slice(0, idx);
+ save(); render();
+ await send(next.trim(), false, prevImg);
 }
 
-function newChat(){const c={id:Date.now(),title:'Новый чат',msgs:[]};chats.unshift(c);cur=c.id;save();render()}
-function hist(){const l=$('hl');l.innerHTML='';chats.forEach(c=>{const d=document.createElement('div'),s=document.createElement('span'),x=document.createElement('b');d.className='row';s.textContent=c.title;x.textContent='✕';
- s.onclick=()=>{cur=c.id;render();show('oh',0)};
- x.onclick=()=>{chats=chats.filter(z=>z!==c);if(cur===c.id)cur=chats[0]?.id;save();hist();render()};d.append(s,x);l.append(d)})}
+function newChat() { const c = {id: Date.now(), title: 'Новый чат', msgs: []}; chats.unshift(c); cur = c.id; save(); render() }
+function hist() {
+ const l = $('hl'); l.innerHTML = '';
+ chats.forEach(c => {
+  const d = document.createElement('div'), s = document.createElement('span'), x = document.createElement('b');
+  d.className = 'row'; s.textContent = c.title; x.textContent = '✕';
+  s.onclick = () => { cur = c.id; render(); show('oh', 0) };
+  x.onclick = () => { chats = chats.filter(z => z !== c); if (cur === c.id) cur = chats[0]?.id; save(); hist(); render() };
+  d.append(s, x); l.append(d);
+ });
+}
 
-let speaking=false;
-function stopSpeak(){if(window.speechSynthesis)speechSynthesis.cancel();speaking=false}
-function speak(t,onDone){
- if(!window.speechSynthesis){onDone&&onDone();return}
+let speaking = false;
+function stopSpeak() { try { if (window.speechSynthesis) speechSynthesis.cancel() } catch {} speaking = false }
+function speak(t, onDone) {
+ if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') { onDone && onDone(); return }
  stopSpeak();
- const clean=t.replace(/[*#_`]/g,'');
- const u=new SpeechSynthesisUtterance(clean);
- u.lang='ru-RU';u.rate=1.05;
- speaking=true;
- u.onend=u.onerror=()=>{speaking=false;onDone&&onDone()};
+ const clean = String(t).replace(/[*#_`]/g, '');
+ const u = new SpeechSynthesisUtterance(clean);
+ u.lang = 'ru-RU'; u.rate = 1.05;
+ speaking = true;
+ u.onend = u.onerror = () => { speaking = false; onDone && onDone() };
  speechSynthesis.speak(u);
 }
 
-async function send(txt,isLive=false,overrideImg=null){
- txt=txt.trim();
- const img=overrideImg||attachedImg||grabFrame();
- if(!txt&&!img)return;
- if(!chat())newChat();const c=chat();
+const OVERLOAD = 'Сэр, серверы сейчас перегружены. Пожалуйста, повторите попытку чуть позже.';
 
- const finalText=txt||(img?'Проанализируй это изображение, сэр.':'');
- const uMsg={r:'user',t:finalText,...(img?{img}:{})};
+async function send(txt, isLive = false, overrideImg = null) {
+ txt = (txt || '').trim();
+ const img = overrideImg || attachedImg || grabFrame();
+ if (!txt && !img) return;
+ if (!chat()) newChat(); const c = chat();
+
+ const finalText = txt || (img ? 'Проанализируй это изображение, сэр.' : '');
+ const uMsg = {r: 'user', t: finalText, ...(img ? {img} : {})};
  c.msgs.push(uMsg);
- if(c.title==='Новый чат')c.title=finalText.slice(0,30);
- const uIdx=c.msgs.length-1;
- addMsg(uMsg,uIdx);
- if(!overrideImg&&attachedImg)setAttachedImg(null);
+ if (c.title === 'Новый чат') c.title = finalText.slice(0, 30);
+ addMsg(uMsg, c.msgs.length - 1);
+ if (!overrideImg && attachedImg) setAttachedImg(null);
 
- let a=null;
- let extraMedia={};
+ let a = null;
+ const extraMedia = {};
 
- if(txt) {
-     a = await cmd(txt, extraMedia);
+ if (txt) {
+  try { a = await cmd(txt, extraMedia) }
+  catch (e) { console.warn(e); a = e.message || 'Не удалось выполнить команду, сэр.' }
  }
 
  if (a != null) {
-     const botMsg={r:'assistant',t:a,...extraMedia};
-     c.msgs.push(botMsg);
-     addMsg(botMsg);
-     save();
-     if(extraMedia.img||extraMedia.vid){render()}
-     
-     if(isLive){
-         $('liveSub').textContent=a;
-         $('liveState').textContent='ГОВОРЮ...';
-         speak(a,()=>{if(liveOn&&!liveMuted)startLiveListen()});
-     } else if(S.voice){
-         speak(a);
-     }
-     return a;
+  const botMsg = {r: 'assistant', t: a, ...extraMedia};
+  c.msgs.push(botMsg);
+  addMsg(botMsg);
+  save();
+  if (extraMedia.img || extraMedia.vid) render();
+  if (isLive) {
+   $('liveSub').textContent = a; $('liveState').textContent = 'ГОВОРЮ...';
+   speak(a, () => { if (liveOn && !liveMuted) startLiveListen() });
+  } else if (S.voice) speak(a);
+  return a;
  }
 
- const w=addMsg({r:'assistant',t:'Анализ данных...'});
- if(isLive)$('liveState').textContent='ДУМАЮ...';
- 
- try{
-  if(!S.key)throw Error('Сэр, серверы сейчас перегружены. Пожалуйста, повторите попытку чуть позже.');
-  a=await ai(c.msgs.slice(-15),w,img);
- }catch(e){
-     a=e.message||'Сэр, серверы сейчас перегружены. Пожалуйста, повторите попытку чуть позже.'
- }
- 
- w.textContent=a;
- const botMsg={r:'assistant',t:a,...extraMedia};
+ const w = addMsg({r: 'assistant', t: 'Анализ данных...'});
+ if (isLive) $('liveState').textContent = 'ДУМАЮ...';
+ try {
+  if (!S.key) throw Error(OVERLOAD);
+  a = await ai(c.msgs.slice(-15), w, img);
+ } catch (e) { a = e.message || OVERLOAD }
+
+ w.textContent = a;
+ const botMsg = {r: 'assistant', t: a, ...extraMedia};
  c.msgs.push(botMsg);
  save();
- if(extraMedia.img||extraMedia.vid){render()}
- 
- if(isLive){
-  $('liveSub').textContent=a;
-  $('liveState').textContent='ГОВОРЮ... (нажмите чтобы перебить)';
-  speak(a,()=>{if(liveOn&&!liveMuted)startLiveListen()});
- }else if(S.voice){
-  speak(a);
- }
+
+ if (isLive) {
+  $('liveSub').textContent = a; $('liveState').textContent = 'ГОВОРЮ... (нажмите чтобы перебить)';
+  speak(a, () => { if (liveOn && !liveMuted) startLiveListen() });
+ } else if (S.voice) speak(a);
  return a;
 }
 
-function buildPayload(prov,h,sys,frame){
- if(prov==='gemini'){
-  const contents=h.map((x,i)=>{
-   const parts=[{text:x.t}];
-   if(i===h.length-1&&frame)parts.push({inline_data:{mime_type:'image/jpeg',data:frame.split(',')[1]}});
-   return{role:x.r==='user'?'user':'model',parts};
+function buildPayload(prov, h, sys, frame) {
+ if (prov === 'gemini') {
+  const contents = h.map((x, i) => {
+   const parts = [{text: x.t}];
+   if (i === h.length - 1 && frame) parts.push({inline_data: {mime_type: 'image/jpeg', data: frame.split(',')[1]}});
+   return {role: x.r === 'user' ? 'user' : 'model', parts};
   });
-  return{system_instruction:{parts:[{text:sys}]},contents};
+  return {system_instruction: {parts: [{text: sys}]}, contents};
  }
- if(prov==='anthropic'){
-  const messages=h.map((x,i)=>{
-   if(i===h.length-1&&frame){
-    return{role:x.r,content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:frame.split(',')[1]}},{type:'text',text:x.t}]};
-   }
-   return{role:x.r,content:x.t};
+ if (prov === 'anthropic') {
+  const messages = h.map((x, i) => {
+   if (i === h.length - 1 && frame) return {role: x.r, content: [{type: 'image', source: {type: 'base64', media_type: 'image/jpeg', data: frame.split(',')[1]}}, {type: 'text', text: x.t}]};
+   return {role: x.r, content: x.t};
   });
-  return{model:null,max_tokens:1024,system:sys,messages};
+  return {model: null, max_tokens: 1024, system: sys, messages};
  }
- const messages=[{role:'system',content:sys},...h.map((x,i)=>{
-  if(i===h.length-1&&frame){
-   return{role:x.r,content:[{type:'text',text:x.t},{type:'image_url',image_url:{url:frame}}]};
-  }
-  return{role:x.r,content:x.t};
+ const messages = [{role: 'system', content: sys}, ...h.map((x, i) => {
+  if (i === h.length - 1 && frame) return {role: x.r, content: [{type: 'text', text: x.t}, {type: 'image_url', image_url: {url: frame}}]};
+  return {role: x.r, content: x.t};
  })];
- return{model:null,messages};
+ return {model: null, messages};
 }
 
-async function ai(h,w,frame){
- h=h.slice();while(h[0]&&h[0].r!=='user')h.shift();
- const p=P[S.prov];
- const sys='Ты — JARVIS 5.0, персональный ИИ-ассистент. Отвечай кратко, живо и по делу (1-3 предложения, особенно в голосовом режиме), с нотками вежливости, на языке пользователя.'+(frame?' Пользователь передал изображение или экран/камеру — проанализируй его и ответь с его учётом.':'')+(mem.length?' Факты о пользователе: '+mem.join('; ')+'.':'');
+async function ai(h, w, frame) {
+ h = h.slice(); while (h[0] && h[0].r !== 'user') h.shift();
+ const p = P[S.prov] || P.gemini;
+ const sys = 'Ты — JARVIS 5.0, персональный ИИ-ассистент. Отвечай кратко, живо и по делу (1-3 предложения, особенно в голосовом режиме), с нотками вежливости, на языке пользователя.' + (frame ? ' Пользователь передал изображение или экран/камеру — проанализируй его и ответь с его учётом.' : '') + (mem.length ? ' Факты о пользователе: ' + mem.join('; ') + '.' : '');
 
- if(S.prov==='gemini'){
-  const modelsToTry=S.model?[S.model,...GEMINI_MODELS.filter(x=>x!==S.model)]:GEMINI_MODELS;
-  const hd={'Content-Type':'application/json','x-goog-api-key':S.key};
-  const baseBody=buildPayload('gemini',h,sys,frame);
-
-  for(const modelName of modelsToTry){
-   const url=`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
-   for(let attempt=0;attempt<2;attempt++){
-    try{
-     const r=await fetch(url,{method:'POST',headers:hd,body:JSON.stringify(baseBody)});
-     const d=await r.json().catch(()=>({}));
-     if(r.ok){
-      const out=d.candidates?.[0]?.content?.parts?.[0]?.text;
-      if(out)return out;
-     }
-     if((r.status===429||r.status===503)&&attempt===0){
-      w.textContent=`Восстановление связи (${modelName})...`;
-      await new Promise(z=>setTimeout(z,1800));
-      continue;
+ if (S.prov === 'gemini') {
+  const modelsToTry = S.model ? [S.model, ...GEMINI_MODELS.filter(x => x !== S.model)] : GEMINI_MODELS;
+  const hd = {'Content-Type': 'application/json', 'x-goog-api-key': S.key};
+  const baseBody = buildPayload('gemini', h, sys, frame);
+  for (const modelName of modelsToTry) {
+   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+   for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+     const r = await fetch(url, {method: 'POST', headers: hd, body: JSON.stringify(baseBody)});
+     const d = await r.json().catch(() => ({}));
+     if (r.ok) { const out = d.candidates?.[0]?.content?.parts?.[0]?.text; if (out) return out }
+     if ((r.status === 429 || r.status === 503) && attempt === 0) {
+      w.textContent = `Восстановление связи (${modelName})...`;
+      await new Promise(z => setTimeout(z, 1800)); continue;
      }
      break;
-    }catch(err){break}
+    } catch (err) { break }
    }
   }
-  throw Error('Сэр, серверы сейчас перегружены. Пожалуйста, повторите попытку чуть позже.');
+  throw Error(OVERLOAD);
  }
 
- const m=S.model||p.m;
- let u,hd={'Content-Type':'application/json'},b=buildPayload(S.prov,h,sys,frame);
- if(S.prov==='anthropic'){
-  u='https://api.anthropic.com/v1/messages';
-  Object.assign(hd,{'x-api-key':S.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
-  b.model=m;
- }else{
-  const base=(S.prov==='custom'?S.url:p.u).replace(/\/+$/,'');
-  if(!base||!m)throw Error('Сэр, серверы сейчас перегружены. Пожалуйста, повторите попытку чуть позже.');
-  u=base+'/chat/completions';hd.Authorization='Bearer '+S.key;b.model=m;
+ const m = S.model || p.m;
+ let u, hd = {'Content-Type': 'application/json'}, b = buildPayload(S.prov, h, sys, frame);
+ if (S.prov === 'anthropic') {
+  u = 'https://api.anthropic.com/v1/messages';
+  Object.assign(hd, {'x-api-key': S.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true'});
+  b.model = m;
+ } else {
+  const base = (S.prov === 'custom' ? S.url : p.u).replace(/\/+$/, '');
+  if (!base || !m) throw Error(OVERLOAD);
+  u = base + '/chat/completions'; hd.Authorization = 'Bearer ' + S.key; b.model = m;
  }
 
- for(let i=0;i<3;i++){
-  try{
-   const r=await fetch(u,{method:'POST',headers:hd,body:JSON.stringify(b)});
-   const d=await r.json().catch(()=>({}));
-   if(r.ok)return d.content?.[0]?.text||d.choices?.[0]?.message?.content||'Сэр, серверы сейчас перегружены. Пожалуйста, повторите попытку чуть позже.';
-   if((r.status===429||r.status===500||r.status===503)&&i<2){
-    w.textContent=`Восстановление связи... (${i+2}/3)`;
-    await new Promise(z=>setTimeout(z,2500));
-    continue;
+ for (let i = 0; i < 3; i++) {
+  try {
+   const r = await fetch(u, {method: 'POST', headers: hd, body: JSON.stringify(b)});
+   const d = await r.json().catch(() => ({}));
+   if (r.ok) return d.content?.[0]?.text || d.choices?.[0]?.message?.content || OVERLOAD;
+   if ((r.status === 429 || r.status === 500 || r.status === 503) && i < 2) {
+    w.textContent = `Восстановление связи... (${i + 2}/3)`;
+    await new Promise(z => setTimeout(z, 2500)); continue;
    }
-   throw Error('Сэр, серверы сейчас перегружены. Пожалуйста, повторите попытку чуть позже.');
-  }catch(err){
-   if(i<2){
-    w.textContent=`Восстановление связи... (${i+2}/3)`;
-    await new Promise(z=>setTimeout(z,2500));
-    continue;
-   }
-   throw Error('Сэр, серверы сейчас перегружены. Пожалуйста, повторите попытку чуть позже.');
+   throw Error(OVERLOAD);
+  } catch (err) {
+   if (i < 2) { w.textContent = `Восстановление связи... (${i + 2}/3)`; await new Promise(z => setTimeout(z, 2500)); continue }
+   throw Error(OVERLOAD);
   }
  }
+ throw Error(OVERLOAD);
 }
 
-const MO=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-const SITES={
+const MO = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const SITES = {
  ютуб:'https://www.youtube.com',youtube:'https://www.youtube.com',
  гугл:'https://www.google.com',google:'https://www.google.com',
  инстаграм:'https://www.instagram.com',instagram:'https://www.instagram.com',
@@ -806,291 +833,338 @@ const SITES={
  ватсап:'https://wa.me',whatsapp:'https://wa.me',
  карты:'https://maps.google.com',maps:'https://maps.google.com',
  переводчик:'https://translate.google.com',
- 'плей маркет':'https://play.google.com',
- 'google play':'https://play.google.com'
+ 'плей маркет':'https://play.google.com','google play':'https://play.google.com'
 };
-async function bat(){try{const g=await navigator.getBattery();return Math.round(g.level*100)+'%'+(g.charging?' (заряжается)':'')}catch{return null}}
+async function bat() {
+ try { if (!navigator.getBattery) return null; const g = await navigator.getBattery(); return Math.round(g.level * 100) + '%' + (g.charging ? ' (заряжается)' : '') } catch { return null }
+}
 
-async function cmd(raw,extraMedia={}){
- const t=raw.toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').replace(/[ .,!?]+$/,'').trim(),has=(...a)=>a.some(x=>t.includes(x)),n=new Date();
+const W_CODE = {
+ 0:'ясно',1:'малооблачно',2:'переменная облачность',3:'пасмурно',
+ 45:'туман',48:'изморозь',51:'слабая морось',53:'морось',55:'сильная морось',
+ 56:'ледяная морось',57:'сильная ледяная морось',61:'слабый дождь',63:'дождь',
+ 65:'сильный дождь',66:'ледяной дождь',67:'сильный ледяной дождь',71:'слабый снег',
+ 73:'снег',75:'сильный снег',77:'снежная крупа',80:'слабый ливень',81:'ливень',
+ 82:'сильный ливень',85:'снегопад',86:'сильный снегопад',
+ 95:'гроза',96:'гроза с градом',99:'сильная гроза с градом'
+};
 
- if(has('включи фонарик','включить фонарик','фонарик включи'))return await setTorch(true);
- if(has('выключи фонарик','выключить фонарик','фонарик выключи'))return await setTorch(false);
+async function getWeather() {
+ if (!navigator.geolocation) return '📍 Геолокация не поддерживается этим браузером.';
+ let pos;
+ try {
+  pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout: 10000, maximumAge: 300000}));
+ } catch (e) {
+  if (e && e.code === 1) return '📍 Доступ к геолокации запрещён. Разрешите его в настройках сайта в браузере и повторите.';
+  if (e && e.code === 2) return '📍 Не удалось определить местоположение (нет сигнала GPS/сети). Попробуйте ещё раз.';
+  if (e && e.code === 3) return '📍 Определение местоположения заняло слишком много времени. Попробуйте ещё раз.';
+  return '📍 Не удалось определить местоположение.';
+ }
+ try {
+  const {latitude: lat, longitude: lon} = pos.coords;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+   `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto`;
+  const res = await fetch(url);
+  if (!res.ok) throw Error('HTTP ' + res.status);
+  const data = await res.json();
+  const c = data.current;
+  if (!c) throw Error('нет данных');
+  return `🌍 Погода сейчас (${lat.toFixed(2)}, ${lon.toFixed(2)}):\n` +
+   `🌡 ${c.temperature_2m}°C (ощущается ${c.apparent_temperature}°C)\n` +
+   `☁ ${W_CODE[c.weather_code] || 'неизвестно'}\n` +
+   `💧 Влажность ${c.relative_humidity_2m}%\n` +
+   `💨 Ветер ${c.wind_speed_10m} км/ч`;
+ } catch (e) {
+  console.error(e);
+  return '☁ Не удалось получить данные о погоде. Проверьте интернет и повторите попытку.';
+ }
+}
 
- if(has('вибрация','вибрируй','повибрируй')){
-  if(navigator.vibrate){navigator.vibrate([120,60,120]);return'Вибрация активирована, сэр.'}
-  return'Вибрация не поддерживается на этом устройстве.';
+async function cmd(raw, extraMedia = {}) {
+ const t = raw.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').replace(/[ .,!?]+$/, '').trim(), has = (...a) => a.some(x => t.includes(x)), n = new Date();
+
+ if (has('включи фонарик', 'включить фонарик', 'фонарик включи')) return await setTorch(true);
+ if (has('выключи фонарик', 'выключить фонарик', 'фонарик выключи')) return await setTorch(false);
+
+ if (has('вибрация', 'вибрируй', 'повибрируй')) {
+  if (navigator.vibrate) { navigator.vibrate([120, 60, 120]); return 'Вибрация активирована, сэр.' }
+  return 'Вибрация не поддерживается на этом устройстве.';
  }
- if(has('включи режим самолет','включить режим самолет','режим полета','авиарежим')){
-  return'Откройте верхнюю шторку Android и нажмите «Авиарежим», либо добавьте свою команду.';
- }
- if(has('выключи режим самолет','выключить режим самолет','выключи авиарежим')){
-  return'Откройте верхнюю шторку Android и выключите «Авиарежим», сэр.';
- }
- if(has('открой камеру','включи камеру','камера')){
-  if(navigator.mediaDevices?.getUserMedia){
-   try{
-    const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
-    $('hiddenVid').srcObject=st;$('livePrev').srcObject=st;$('livePrev').style.display='block';
-    return'Камера Android запущена, сэр.';
-   }catch{return'Разрешите доступ к камере в браузере, сэр.'}
+ if (has('включи режим самолет', 'включить режим самолет', 'режим полета', 'авиарежим')) return 'Откройте верхнюю шторку Android и нажмите «Авиарежим», либо добавьте свою команду.';
+ if (has('выключи режим самолет', 'выключить режим самолет', 'выключи авиарежим')) return 'Откройте верхнюю шторку Android и выключите «Авиарежим», сэр.';
+ if (has('открой камеру', 'включи камеру', 'камера')) {
+  if (navigator.mediaDevices?.getUserMedia) {
+   try {
+    const st = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}, audio: false});
+    $('hiddenVid').srcObject = st; $('livePrev').srcObject = st; $('livePrev').style.display = 'block';
+    return 'Камера Android запущена, сэр.';
+   } catch { return 'Разрешите доступ к камере в браузере, сэр.' }
   }
  }
- if(has('открой настройки','настройки андроид')){
-  openS();return'Открываю настройки, сэр.';
+ if (has('открой настройки', 'настройки андроид')) { openS(); return 'Открываю настройки, сэр.' }
+
+ if (/^(создай видео|сделай видео|сгенерируй видео)/.test(t)) {
+  const pr = raw.replace(/^\s*(создай видео|сделай видео|сгенерируй видео)\s*/i, '').trim() || 'Сцена JARVIS PLUS';
+  const vUrl = await generatePlusVideo(pr);
+  if (vUrl.startsWith('blob:') || vUrl.startsWith('http')) extraMedia.vid = vUrl; else extraMedia.img = vUrl;
+  return 'Видео создано в режиме JARVIS PLUS, сэр.';
+ }
+ if (/^(нарисуй|создай картинку|сделай картинку|сгенерируй картинку|создай изображение)/.test(t)) {
+  const pr = raw.replace(/^\s*(нарисуй|создай картинку|сделай картинку|сгенерируй картинку|создай изображение)\s*/i, '').trim() || 'Картинка JARVIS PLUS';
+  extraMedia.img = await generatePlusImage(pr);
+  return 'Картинка создана в режиме JARVIS PLUS, сэр.';
  }
 
- if(/^(создай видео|сделай видео|сгенерируй видео)/.test(t)){
-  const pr=raw.replace(/^\s*(создай видео|сделай видео|сгенерируй видео)\s*/i,'').trim()||'Сцена JARVIS PLUS';
-  const vUrl=await generatePlusVideo(pr);
-  if(vUrl.startsWith('blob:')||vUrl.startsWith('http'))extraMedia.vid=vUrl;
-  else extraMedia.img=vUrl;
-  return'Видео создано в режиме JARVIS PLUS, сэр.';
- }
- if(/^(нарисуй|создай картинку|сделай картинку|сгенерируй картинку|создай изображение)/.test(t)){
-  const pr=raw.replace(/^\s*(нарисуй|создай картинку|сделай картинку|сгенерируй картинку|создай изображение)\s*/i,'').trim()||'Картинка JARVIS PLUS';
-  const iUrl=await generatePlusImage(pr);
-  extraMedia.img=iUrl;
-  return'Картинка создана в режиме JARVIS PLUS, сэр.';
- }
-
- if(/^(добавить команду|создать команду|новая команда)/.test(t)){
-  const body=raw.replace(/^\s*(добавить команду|создать команду|новая команда)\s*/i,'').trim();
-  const parts=body.split(/\s*(?:->|=|:)\s*/);
-  if(parts.length<2||!parts[0].trim()||!parts[1].trim()){
-   return'Скажите так: «добавить команду включи фонарик -> Фонарик включён» или «добавить команду сайт -> https://example.com».';
-  }
-  const trig=parts[0].toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').trim();
-  const val=parts.slice(1).join(' -> ').trim();
-  customCmds[trig]=val;
+ if (/^(добавить команду|создать команду|новая команда)/.test(t)) {
+  const body = raw.replace(/^\s*(добавить команду|создать команду|новая команда)\s*/i, '').trim();
+  const parts = body.split(/\s*(?:->|=|:)\s*/);
+  if (parts.length < 2 || !parts[0].trim() || !parts[1].trim()) return 'Скажите так: «добавить команду включи фонарик -> Фонарик включён» или «добавить команду сайт -> https://example.com».';
+  const trig = parts[0].toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+  customCmds[trig] = parts.slice(1).join(' -> ').trim();
   save();
-  return`Команда «${trig}» добавлена.`;
+  return `Команда «${trig}» добавлена.`;
  }
- if(/^(удалить команду|удали команду)/.test(t)){
-  const trig=raw.replace(/^\s*(удалить команду|удали команду)\s*/i,'').toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').trim();
-  if(!trig||!customCmds[trig])return'Такой пользовательской команды не найдено.';
-  delete customCmds[trig];
-  save();
-  return`Команда «${trig}» удалена.`;
+ if (/^(удалить команду|удали команду)/.test(t)) {
+  const trig = raw.replace(/^\s*(удалить команду|удали команду)\s*/i, '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+  if (!trig || !customCmds[trig]) return 'Такой пользовательской команды не найдено.';
+  delete customCmds[trig]; save();
+  return `Команда «${trig}» удалена.`;
  }
- if(has('мои команды','список своих команд')){
-  const keys=Object.keys(customCmds);
-  return keys.length?'Ваши команды: '+keys.join(', ')+'.':'У вас пока нет добавленных команд.';
+ if (has('мои команды', 'список своих команд')) {
+  const keys = Object.keys(customCmds);
+  return keys.length ? 'Ваши команды: ' + keys.join(', ') + '.' : 'У вас пока нет добавленных команд.';
  }
- for(const trig in customCmds){
-  if(t===trig||t.includes(trig)){
-   const val=customCmds[trig];
-   if(/^https?:\/\//i.test(val)){open(val,'_blank');return`Выполняю команду «${trig}».`}
+ for (const trig in customCmds) {
+  if (t === trig || t.includes(trig)) {
+   const val = customCmds[trig];
+   if (/^https?:\/\//i.test(val)) { open(val, '_blank'); return `Выполняю команду «${trig}».` }
    return val;
   }
  }
 
- if(/^(запомни|сохрани в память)/.test(t)){const f=raw.replace(/^\s*(запомни( это)?|сохрани в память)[\s:,.-]*/i,'').trim();if(!f)return'Скажите, что именно нужно запомнить.';mem.push(f);save();return'Запомнил.'}
- if(has('что ты помнишь','покажи память','моя память'))return mem.length?'Я помню: '+mem.slice(-10).join('; ')+'.':'Я пока ничего не сохранил в долгосрочную память.';
- if(has('очистить память','забыть все','удали память')){mem=[];save();return'Долгосрочная память очищена.'}
+ if (/^(запомни|сохрани в память)/.test(t)) { const f = raw.replace(/^\s*(запомни( это)?|сохрани в память)[\s:,.-]*/i, '').trim(); if (!f) return 'Скажите, что именно нужно запомнить.'; mem.push(f); save(); return 'Запомнил.' }
+ if (has('что ты помнишь', 'покажи память', 'моя память')) return mem.length ? 'Я помню: ' + mem.slice(-10).join('; ') + '.' : 'Я пока ничего не сохранил в долгосрочную память.';
+ if (has('очистить память', 'забыть все', 'удали память')) { mem = []; save(); return 'Долгосрочная память очищена.' }
 
- if(has('что ты умеешь','список команд','помощь'))return'Команды: «включи фонарик», «выключи фонарик», «вибрация», «открой камеру», «открой настройки», «добавить команду фраза -> ответ или ссылка», «нарисуй ...», «создай видео ...» (в JARVIS PLUS на 1 месяц за 30 сомони / 3$ на +992931580081 Душанбе Сити), время, дата, батарея, система, погода, новости, поиск («найди ...»), открыть YouTube/Telegram/WhatsApp/Instagram/Карты/Плей Маркет, позвонить («позвони +992...»), SMS («смс +992... текст»), маршрут («маршрут до ...»), поделиться, калькулятор («посчитай 2+2»), «запомни ...», режим Live и демонстрация экрана.';
+ if (has('что ты умеешь', 'список команд', 'помощь')) return 'Команды: «включи фонарик», «выключи фонарик», «вибрация», «открой камеру», «открой настройки», «добавить команду фраза -> ответ или ссылка», «нарисуй ...», «создай видео ...» (в JARVIS PLUS на 1 месяц за 30 сомони / 3$ на +992931580081 Душанбе Сити), время, дата, батарея, система, погода, новости, поиск («найди ...»), открыть YouTube/Telegram/WhatsApp/Instagram/Карты/Плей Маркет, позвонить («позвони +992...»), SMS («смс +992... текст»), маршрут («маршрут до ...»), поделиться, калькулятор («посчитай 2+2»), «запомни ...», режим Live и демонстрация экрана.';
 
- if(/^(позвони|набери|вызов)/.test(t)){
-  const num=raw.replace(/[^\d+]/g,'');
-  if(num.length<3)return'Укажите номер телефона, например: позвони +992931580081';
-  location.href='tel:'+num;return'Набираю номер '+num+' на Android.';
+ if (/^(позвони|набери|вызов)/.test(t)) {
+  const num = raw.replace(/[^\d+]/g, '');
+  if (num.length < 3) return 'Укажите номер телефона, например: позвони +992931580081';
+  location.href = 'tel:' + num; return 'Набираю номер ' + num + ' на Android.';
  }
- if(/^(смс|напиши смс|отправь смс)/.test(t)){
-  const m=raw.match(/(\+?\d[\d\s\-()]{4,})\s*(.*)/);
-  if(!m)return'Формат: смс +992931580081 Привет';
-  const num=m[1].replace(/[^\d+]/g,''),body=encodeURIComponent(m[2]||'');
-  location.href=`sms:${num}${body?'?body='+body:''}`;return'Открываю SMS для '+num+'.';
+ if (/^(смс|напиши смс|отправь смс)/.test(t)) {
+  const m = raw.match(/(\+?\d[\d\s\-()]{4,})\s*(.*)/);
+  if (!m) return 'Формат: смс +992931580081 Привет';
+  const num = m[1].replace(/[^\d+]/g, ''), body = encodeURIComponent(m[2] || '');
+  location.href = `sms:${num}${body ? '?body=' + body : ''}`; return 'Открываю SMS для ' + num + '.';
  }
- if(/^(напиши в ватсап|whatsapp)/.test(t)){
-  const m=raw.match(/(\+?\d[\d\s\-()]{6,})\s*(.*)/);
-  if(m){const num=m[1].replace(/\D/g,''),txt=encodeURIComponent(m[2]||'');open(`https://wa.me/${num}${txt?'?text='+txt:''}`,'_blank');return'Открываю чат WhatsApp.'}
+ if (/^(напиши в ватсап|whatsapp)/.test(t)) {
+  const m = raw.match(/(\+?\d[\d\s\-()]{6,})\s*(.*)/);
+  if (m) { const num = m[1].replace(/\D/g, ''), tx = encodeURIComponent(m[2] || ''); open(`https://wa.me/${num}${tx ? '?text=' + tx : ''}`, '_blank'); return 'Открываю чат WhatsApp.' }
  }
- if(/^(маршрут|навигатор|покажи на карте|где находится)/.test(t)){
-  const q=raw.replace(/^\s*(маршрут( до)?|навигатор|покажи на карте|где находится)\s*/i,'').trim();
-  if(!q)return'Куда проложить маршрут?';
-  open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q),'_blank');
-  return'Строю маршрут в Google Картах: '+q+'.';
+ if (/^(маршрут|навигатор|покажи на карте|где находится)/.test(t)) {
+  const q = raw.replace(/^\s*(маршрут( до)?|навигатор|покажи на карте|где находится)\s*/i, '').trim();
+  if (!q) return 'Куда проложить маршрут?';
+  open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q), '_blank');
+  return 'Строю маршрут в Google Картах: ' + q + '.';
  }
- if(/^(поделись|отправь текст)/.test(t)){
-  const q=raw.replace(/^\s*(поделись|отправь текст)\s*/i,'').trim();
-  if(navigator.share){await navigator.share({title:'JARVIS 5.0',text:q||'Сообщение от JARVIS 5.0'}).catch(()=>{});return'Открыл меню отправки Android.'}
-  return'Функция «Поделиться» недоступна в этом браузере.';
+ if (/^(поделись|отправь текст)/.test(t)) {
+  const q = raw.replace(/^\s*(поделись|отправь текст)\s*/i, '').trim();
+  if (navigator.share) { await navigator.share({title: 'JARVIS 5.0', text: q || 'Сообщение от JARVIS 5.0'}).catch(() => {}); return 'Открыл меню отправки Android.' }
+  return 'Функция «Поделиться» недоступна в этом браузере.';
  }
- if(has('включи экран','покажи экран','демонстрация экрана')){if(!scrStream)await toggleScreen();return'Демонстрация экрана активирована, сэр.'}
- if(has('выключи экран','останови экран','стоп экран')){stopScreen();return'Демонстрация экрана остановлена.'}
- if(has('режим live','включи live','голосовой режим')){startLive();return'Переключаюсь в Live-режим.'}
+ if (has('включи экран', 'покажи экран', 'демонстрация экрана')) { if (!scrStream) await toggleScreen(); return 'Демонстрация экрана активирована, сэр.' }
+ if (has('выключи экран', 'останови экран', 'стоп экран')) { stopScreen(); return 'Демонстрация экрана остановлена.' }
+ if (has('режим live', 'включи live', 'голосовой режим')) { startLive(); return 'Переключаюсь в Live-режим.' }
 
- if(has('который час','сколько времени','текущее время','время'))return'Сейчас '+n.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})+'.';
- if(has('какая дата','какое сегодня число','сегодняшняя дата'))return`Сегодня ${n.getDate()} ${MO[n.getMonth()]} ${n.getFullYear()} года.`;
- if(has('заряд батареи','батарея','аккумулятор')){const b=await bat();return b?'Заряд батареи: '+b+'.':'Данные о батарее недоступны.'}
- if(has('информация о системе','проверить систему','статус компьютера','состояние системы','характеристики')){const b=await bat();return`Платформа: ${navigator.platform}. Ядер: ${navigator.hardwareConcurrency||'?'}. Память: ${navigator.deviceMemory?'≥'+navigator.deviceMemory+' ГБ':'н/д'}. Батарея: ${b||'н/д'}. Сеть: ${navigator.onLine?'подключена':'нет'}.`}
- if(has('режим ожидания','спокойной ночи','доброй ночи')){wait=true;$('stat').textContent='STANDBY';return'Режим ожидания включён. Скажите «привет JARVIS», чтобы продолжить.'}
- if(has('привет джарвис','привет jarvis','здравствуй джарвис','режим джарвис')){wait=false;$('stat').textContent='ONLINE';return'Здравствуйте. JARVIS AI 5.0 на связи.'}
- if(has('кто твой создатель','кто тебя создал'))return'Меня создал Зоиров Мухаммад. Проект JARVIS 5.0.';
- if(has('расскажи о себе','о себе','кто ты','что ты такое'))return'Я — JARVIS AI 5.0, персональный искусственный интеллект, созданный Зоировым Мухаммадом.';
- if(/^(открой|запусти)/.test(t)){
-  for(const k in SITES)if(t.includes(k)){open(SITES[k],'_blank');return'Открываю '+k+'.'}
-  if(has('браузер','интернет')){open('https://www.google.com','_blank');return'Открываю браузер.'}
+ if (has('который час', 'сколько времени', 'текущее время', 'время')) return 'Сейчас ' + n.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'}) + '.';
+ if (has('какая дата', 'какое сегодня число', 'сегодняшняя дата')) return `Сегодня ${n.getDate()} ${MO[n.getMonth()]} ${n.getFullYear()} года.`;
+ if (has('заряд батареи', 'батарея', 'аккумулятор')) { const b = await bat(); return b ? 'Заряд батареи: ' + b + '.' : 'Данные о батарее недоступны.' }
+ if (has('информация о системе', 'проверить систему', 'статус компьютера', 'состояние системы', 'характеристики')) {
+  const b = await bat();
+  return `Платформа: ${navigator.platform}. Ядер: ${navigator.hardwareConcurrency || '?'}. Память: ${navigator.deviceMemory ? '≥' + navigator.deviceMemory + ' ГБ' : 'н/д'}. Батарея: ${b || 'н/д'}. Сеть: ${navigator.onLine ? 'подключена' : 'нет'}.`;
  }
- if(has('новости')){open('https://news.google.com/?hl=ru','_blank');return'Открываю последние новости.'}
- if(/^(поиск|найди|загугли)/.test(t)){const q=raw.replace(/^\s*(поиск( в интернете)?|найди|загугли)\s*/i,'').trim();if(!q)return'Что найти в интернете?';open('https://www.google.com/search?q='+encodeURIComponent(q),'_blank');return'Ищу: '+q+'.'}
- 
- if(has('погода','прогноз')){
-  try{
-   const pos = await new Promise((resolve, reject) => {
-    if(!navigator.geolocation) return reject('Геолокация недоступна');
-    navigator.geolocation.getCurrentPosition(resolve, reject, {timeout: 8000, maximumAge: 300000});
-   });
-   const {latitude: lat, longitude: lon} = pos.coords;
-   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-    `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m` +
-    `&timezone=auto`;
-   const res = await fetch(url);
-   if(!res.ok) throw new Error('Ошибка сети');
-   const data = await res.json();
-   const c = data.current;
-   const W_CODE = {
-    0:'ясно', 1:'малооблачно', 2:'переменная облачность', 3:'пасмурно',
-    45:'туман', 48:'изморозь', 51:'слабая морось', 53:'морось', 55:'сильная морось',
-    56:'ледяная морось', 57:'ледяная морось', 61:'слабый дождь', 63:'дождь',
-    65:'сильный дождь', 66:'ледяной дождь', 67:'ледяной дождь', 71:'слабый снег',
-    73:'снег', 75:'сильный снег', 77:'снежная крупа', 80:'ливень', 81:'ливень',
-    82:'сильный ливень', 85:'снегопад', 86:'сильный снегопад',
-    95:'гроза', 96:'гроза с градом', 99:'гроза с градом'
-   };
-   return `🌍 Погода сейчас (${lat.toFixed(2)}, ${lon.toFixed(2)}):\n` +
-    `🌡 ${c.temperature_2m}°C (ощущается ${c.apparent_temperature}°C)\n` +
-    `☁ ${W_CODE[c.weather_code] || 'неизвестно'}\n` +
-    `💧 Влажность ${c.relative_humidity_2m}%\n` +
-    `💨 Ветер ${c.wind_speed_10m} км/ч`;
-  }catch(e){
-   console.error(e);
-   return '📍 Не удалось определить местоположение. Разрешите доступ к геолокации в браузере и попробуйте снова.';
-  }
+ if (has('режим ожидания', 'спокойной ночи', 'доброй ночи')) { wait = true; $('stat').textContent = 'STANDBY'; return 'Режим ожидания включён. Скажите «привет JARVIS», чтобы продолжить.' }
+ if (has('привет джарвис', 'привет jarvis', 'здравствуй джарвис', 'режим джарвис')) { wait = false; $('stat').textContent = 'ONLINE'; return 'Здравствуйте. JARVIS AI 5.0 на связи.' }
+ if (has('кто твой создатель', 'кто тебя создал')) return 'Меня создал Зоиров Мухаммад. Проект JARVIS 5.0.';
+ if (has('расскажи о себе', 'о себе', 'кто ты', 'что ты такое')) return 'Я — JARVIS AI 5.0, персональный искусственный интеллект, созданный Зоировым Мухаммадом.';
+ if (/^(открой|запусти)/.test(t)) {
+  for (const k in SITES) if (t.includes(k)) { open(SITES[k], '_blank'); return 'Открываю ' + k + '.' }
+  if (has('браузер', 'интернет')) { open('https://www.google.com', '_blank'); return 'Открываю браузер.' }
  }
+ if (has('новости')) { open('https://news.google.com/?hl=ru', '_blank'); return 'Открываю последние новости.' }
+ if (/^(поиск|найди|загугли)/.test(t)) { const q = raw.replace(/^\s*(поиск( в интернете)?|найди|загугли)\s*/i, '').trim(); if (!q) return 'Что найти в интернете?'; open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank'); return 'Ищу: ' + q + '.' }
 
- if(/^(посчитай|вычисли)/.test(t)||t.includes('калькулятор')){
-  const e=t.replace(/^(посчитай|вычисли)|калькулятор/g,'').replace(/ плюс /g,'+').replace(/ минус /g,'-').replace(/ умножить на /g,'*').replace(/ разделить на /g,'/').replace(/,/g,'.').replace(/\s/g,'');
-  if(!/^[\d+\-*/().%]+$/.test(e)||e.length>100)return'Используйте числа и знаки + - * /';
-  try{const v=Function('"use strict";return('+e+')')();return Number.isFinite(v)?'Результат: '+Math.round(v*1e10)/1e10+'.':'Ошибка вычисления.'}catch{return'Ошибка вычисления.'}
+ if (has('погода', 'прогноз')) return await getWeather();
+
+ if (/^(посчитай|вычисли)/.test(t) || t.includes('калькулятор')) {
+  const e = t.replace(/^(посчитай|вычисли)|калькулятор/g, '').replace(/ плюс /g, '+').replace(/ минус /g, '-').replace(/ умножить на /g, '*').replace(/ разделить на /g, '/').replace(/,/g, '.').replace(/\s/g, '');
+  if (!/^[\d+\-*/().%]+$/.test(e) || e.length > 100) return 'Используйте числа и знаки + - * /';
+  try { const v = Function('"use strict";return(' + e + ')')(); return Number.isFinite(v) ? 'Результат: ' + Math.round(v * 1e10) / 1e10 + '.' : 'Ошибка вычисления.' } catch { return 'Ошибка вычисления.' }
  }
- if(has('случайное число','рандом')){let [a=1,b=100]=(t.match(/\d+/g)||[]).map(Number);if(a>b)[a,b]=[b,a];return'Случайное число: '+(a+Math.floor(Math.random()*(b-a+1)))+'.'}
+ if (has('случайное число', 'рандом')) { let [a = 1, b = 100] = (t.match(/\d+/g) || []).map(Number); if (a > b) [a, b] = [b, a]; return 'Случайное число: ' + (a + Math.floor(Math.random() * (b - a + 1))) + '.' }
  return null;
 }
 
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-let liveOn=false,liveMuted=false,liveRec=null;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let liveOn = false, liveMuted = false, liveRec = null;
 
-function startLive(){
- if(!SR)return alert('Распознавание речи не поддерживается в этом браузере.');
- liveOn=true;liveMuted=false;
+function startLive() {
+ if (!SR) return alert('Распознавание речи не поддерживается в этом браузере.');
+ liveOn = true; liveMuted = false;
  $('liveMute').classList.add('act');
- show('liveOv',1);
- $('liveSub').textContent='Я слушаю, сэр. Говорите...';
+ show('liveOv', 1);
+ $('liveSub').textContent = 'Я слушаю, сэр. Говорите...';
  startLiveListen();
 }
-function stopLive(){
- liveOn=false;stopSpeak();
- if(liveRec){try{liveRec.abort()}catch{}liveRec=null}
- show('liveOv',0);
+function stopLive() {
+ liveOn = false; stopSpeak();
+ if (liveRec) { try { liveRec.abort() } catch {} liveRec = null }
+ show('liveOv', 0);
 }
-function startLiveListen(){
- if(!liveOn||liveMuted)return;
+function startLiveListen() {
+ if (!liveOn || liveMuted) return;
  stopSpeak();
- if(liveRec){try{liveRec.abort()}catch{}}
- const r=new SR();liveRec=r;
- r.lang='ru-RU';r.interimResults=true;r.continuous=false;
- $('liveState').textContent='СЛУШАЮ ВАС, СЭР...';
- let finalTxt='';
- r.onresult=e=>{
-  let interim='';
-  for(let i=e.resultIndex;i<e.results.length;i++){
-   if(e.results[i].isFinal)finalTxt+=e.results[i][0].transcript;
-   else interim+=e.results[i][0].transcript;
+ if (liveRec) { try { liveRec.abort() } catch {} }
+ const r = new SR(); liveRec = r;
+ r.lang = 'ru-RU'; r.interimResults = true; r.continuous = false;
+ $('liveState').textContent = 'СЛУШАЮ ВАС, СЭР...';
+ let finalTxt = '';
+ r.onresult = e => {
+  let interim = '';
+  for (let i = e.resultIndex; i < e.results.length; i++) {
+   if (e.results[i].isFinal) finalTxt += e.results[i][0].transcript; else interim += e.results[i][0].transcript;
   }
-  $('liveSub').textContent=finalTxt||interim||'Слушаю...';
+  $('liveSub').textContent = finalTxt || interim || 'Слушаю...';
  };
- r.onend=async()=>{
-  liveRec=null;
-  if(!liveOn||liveMuted)return;
-  if(finalTxt.trim()){
-   await send(finalTxt.trim(),true);
-  }else{
-   setTimeout(()=>{if(liveOn&&!liveMuted&&!speaking)startLiveListen()},250);
-  }
+ r.onend = async () => {
+  liveRec = null;
+  if (!liveOn || liveMuted) return;
+  if (finalTxt.trim()) await send(finalTxt.trim(), true);
+  else setTimeout(() => { if (liveOn && !liveMuted && !speaking) startLiveListen() }, 250);
  };
- r.onerror=e=>{
-  liveRec=null;
-  if(!liveOn||liveMuted)return;
-  if(e.error==='not-allowed'){alert('Нет доступа к микрофону');stopLive();return}
-  setTimeout(()=>{if(liveOn&&!liveMuted&&!speaking)startLiveListen()},500);
+ r.onerror = e => {
+  liveRec = null;
+  if (!liveOn || liveMuted) return;
+  if (e.error === 'not-allowed') { alert('Нет доступа к микрофону'); stopLive(); return }
+  setTimeout(() => { if (liveOn && !liveMuted && !speaking) startLiveListen() }, 500);
  };
- try{r.start()}catch{}
+ try { r.start() } catch {}
 }
 
-$('blive').onclick=startLive;
-$('liveEnd').onclick=stopLive;
-$('liveRx').onclick=()=>{
- if(speaking){stopSpeak();startLiveListen()}
- else if(!liveRec&&!liveMuted)startLiveListen();
-};
-$('liveMute').onclick=()=>{
- liveMuted=!liveMuted;
- $('liveMute').classList.toggle('act',!liveMuted);
- if(liveMuted){if(liveRec)try{liveRec.abort()}catch{};$('liveState').textContent='МИКРОФОН ВЫКЛЮЧЕН'}
+on('blive', 'onclick', startLive);
+on('liveEnd', 'onclick', stopLive);
+on('liveRx', 'onclick', () => {
+ if (speaking) { stopSpeak(); startLiveListen() }
+ else if (!liveRec && !liveMuted) startLiveListen();
+});
+on('liveMute', 'onclick', () => {
+ liveMuted = !liveMuted;
+ $('liveMute').classList.toggle('act', !liveMuted);
+ if (liveMuted) { if (liveRec) try { liveRec.abort() } catch {} $('liveState').textContent = 'МИКРОФОН ВЫКЛЮЧЕН' }
  else startLiveListen();
-};
+});
 
-function drawCore(ctx,size,ang,pul,active){
- const plus=isPlusActive();
- const mainCol=active?'#00e77b':(plus?'#00f5a0':'#00d9ff');
- const c=size/2,R=size*0.36,D=Math.PI/180;
- ctx.clearRect(0,0,size,size);ctx.save();ctx.translate(c,c);
- ctx.strokeStyle=mainCol;
- [[1.18,.2,1],[1.04,.6,2],[.88,.4,1],[.72,.7,1],[.56,.6,2]].forEach(([s,a,w])=>{ctx.globalAlpha=a;ctx.lineWidth=w;ctx.beginPath();ctx.arc(0,0,R*s,0,7);ctx.stroke()});
- ctx.globalAlpha=1;ctx.save();ctx.rotate(ang*D);ctx.lineWidth=3;
- [10,90,188,265].forEach(d=>{ctx.beginPath();ctx.arc(0,0,R*1.04,d*D,(d+48)*D);ctx.stroke()});
- ctx.lineWidth=2;for(let i=0;i<32;i++){ctx.beginPath();ctx.moveTo(0,-R*.91);ctx.lineTo(0,-R*(i%4?.83:.77));ctx.stroke();ctx.rotate(Math.PI/16)}
- ctx.restore();ctx.strokeStyle=mainCol;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(-R*1.25,0);ctx.lineTo(R*1.25,0);ctx.moveTo(0,-R*1.25);ctx.lineTo(0,R*1.25);ctx.stroke();
- const g=(size*0.09)+(speaking?9:5)*Math.sin(pul*D);
- ctx.fillStyle=active?'rgba(0,231,123,.18)':(plus?'rgba(168,85,247,.22)':'rgba(0,214,255,.16)');ctx.beginPath();ctx.arc(0,0,g*1.75,0,7);ctx.fill();
- ctx.fillStyle=mainCol;ctx.beginPath();ctx.arc(0,0,g,0,7);ctx.fill();
- ctx.fillStyle='#f5eaff';ctx.beginPath();ctx.arc(-g*.18,-g*.18,g*.43,0,7);ctx.fill();ctx.restore();
+function drawCore(ctx, size, ang, pul, active) {
+ const plus = isPlusActive();
+ const mainCol = active ? '#00e77b' : (plus ? '#00f5a0' : '#00d9ff');
+ const c = size / 2, R = size * 0.36, D = Math.PI / 180;
+ ctx.clearRect(0, 0, size, size); ctx.save(); ctx.translate(c, c);
+ ctx.strokeStyle = mainCol;
+ [[1.18,.2,1],[1.04,.6,2],[.88,.4,1],[.72,.7,1],[.56,.6,2]].forEach(([s, a, w]) => { ctx.globalAlpha = a; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(0, 0, R * s, 0, 7); ctx.stroke() });
+ ctx.globalAlpha = 1; ctx.save(); ctx.rotate(ang * D); ctx.lineWidth = 3;
+ [10, 90, 188, 265].forEach(d => { ctx.beginPath(); ctx.arc(0, 0, R * 1.04, d * D, (d + 48) * D); ctx.stroke() });
+ ctx.lineWidth = 2; for (let i = 0; i < 32; i++) { ctx.beginPath(); ctx.moveTo(0, -R * .91); ctx.lineTo(0, -R * (i % 4 ? .83 : .77)); ctx.stroke(); ctx.rotate(Math.PI / 16) }
+ ctx.restore(); ctx.strokeStyle = mainCol; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-R * 1.25, 0); ctx.lineTo(R * 1.25, 0); ctx.moveTo(0, -R * 1.25); ctx.lineTo(0, R * 1.25); ctx.stroke();
+ const g = (size * 0.09) + (speaking ? 9 : 5) * Math.sin(pul * D);
+ ctx.fillStyle = active ? 'rgba(0,231,123,.18)' : (plus ? 'rgba(168,85,247,.22)' : 'rgba(0,214,255,.16)'); ctx.beginPath(); ctx.arc(0, 0, g * 1.75, 0, 7); ctx.fill();
+ ctx.fillStyle = mainCol; ctx.beginPath(); ctx.arc(0, 0, g, 0, 7); ctx.fill();
+ ctx.fillStyle = '#f5eaff'; ctx.beginPath(); ctx.arc(-g * .18, -g * .18, g * .43, 0, 7); ctx.fill(); ctx.restore();
 }
-const cv=$('rx'),ctx1=cv.getContext('2d'),lcv=$('liveRx'),ctx2=lcv.getContext('2d');
-let ang=0,pul=0;
-function loop(){
- drawCore(ctx1,240,ang,pul,false);
- if(liveOn)drawCore(ctx2,320,ang*1.5,pul*(speaking?2:1),speaking||!!liveRec);
- ang=(ang+1.2)%360;pul=(pul+4)%360;requestAnimationFrame(loop);
+const ctxOf = id => { const el = document.getElementById(id); return el && el.getContext ? el.getContext('2d') : null };
+const ctx1 = ctxOf('rx'), ctx2 = ctxOf('liveRx');
+let ang = 0, pul = 0;
+function loop() {
+ try {
+  if (ctx1) drawCore(ctx1, 240, ang, pul, false);
+  if (liveOn && ctx2) drawCore(ctx2, 320, ang * 1.5, pul * (speaking ? 2 : 1), speaking || !!liveRec);
+ } catch (e) { console.error('[JARVIS] loop', e) }
+ ang = (ang + 1.2) % 360; pul = (pul + 4) % 360;
+ requestAnimationFrame(loop);
 }
 loop();
 
-async function tick(){const n=new Date();$('clk').textContent='◷ '+n.toLocaleTimeString('ru-RU');$('dt').textContent='▣ '+n.toLocaleDateString('ru-RU');
- if(!isPlusActive()&&S.subUntil)syncPlusUI();
- let b='N/A',pc=0;try{const g=await navigator.getBattery();pc=g.level*100;b=Math.round(pc)+'%'+(g.charging?' ⚡':'')}catch{}
- $('bat').textContent=b;$('bb').style.width=pc+'%';$('net').textContent=navigator.onLine?'CONNECTED':'OFFLINE';
- $('cpu').textContent=(navigator.hardwareConcurrency||'?')+'c';$('ram').textContent=navigator.deviceMemory?'≥'+navigator.deviceMemory+'GB':'N/A'}
-tick();setInterval(tick,2000);
+let batMgr = null;
+async function tick() {
+ guard('clock', () => {
+  const n = new Date();
+  safeText('clk', '◷ ' + n.toLocaleTimeString('ru-RU'));
+  safeText('dt', '▣ ' + n.toLocaleDateString('ru-RU'));
+ });
+ guard('sys', () => {
+  safeText('net', navigator.onLine ? 'CONNECTED' : 'OFFLINE');
+  safeText('cpu', (navigator.hardwareConcurrency || '?') + 'c');
+  safeText('ram', navigator.deviceMemory ? '≥' + navigator.deviceMemory + 'GB' : 'N/A');
+  if (!isPlusActive() && S.subUntil) syncPlusUI();
+ });
+ let txt = 'N/A', pc = 0;
+ try {
+  if (typeof navigator.getBattery === 'function') {
+   if (!batMgr) batMgr = await navigator.getBattery();
+   pc = batMgr.level * 100;
+   txt = Math.round(pc) + '%' + (batMgr.charging ? ' ⚡' : '');
+  }
+ } catch (e) { txt = 'N/A'; pc = 0 }
+ safeText('bat', txt);
+ guard('bb', () => { $('bb').style.width = pc + '%' });
+}
+guard('tick0', () => { tick() });
+setInterval(() => { tick().catch(e => console.warn(e)) }, 2000);
+window.addEventListener('online', () => guard('net', () => safeText('net', 'CONNECTED')));
+window.addEventListener('offline', () => guard('net', () => safeText('net', 'OFFLINE')));
 
-$('prov').innerHTML=Object.entries(P).map(([k,v])=>`<option value="${k}">${v.n}</option>`).join('');
-const sync=()=>{$('ur').style.display=$('prov').value==='custom'?'block':'none';$('mdl').placeholder=$('prov').value==='gemini'?'пусто = каскад ('+GEMINI_MODELS[0]+'...)':(P[$('prov').value].m||'имя модели')};
-$('prov').onchange=sync;
-function openS(){$('prov').value=S.prov;$('key').value=S.key;$('mdl').value=S.model;$('url').value=S.url;$('payRequisites').value=S.payInfo||DEFAULT_PAY_INFO;$('vc').checked=S.voice;sync();show('os',1)}
-$('bs').onclick=openS;$('sx').onclick=()=>show('os',0);
-$('ss').onclick=()=>{if($('key').value.trim().length<8)return alert('Введите корректный API-ключ');
- S={...S,prov:$('prov').value,key:$('key').value.trim(),model:$('mdl').value.trim(),url:$('url').value.trim(),payInfo:$('payRequisites').value.trim()||DEFAULT_PAY_INFO,voice:$('vc').checked};
- save();syncPlusUI();show('os',0)};
-$('bh').onclick=()=>{hist();show('oh',1)};$('hx').onclick=()=>show('oh',0);
-$('hn').onclick=()=>{newChat();show('oh',0)};
-$('hc').onclick=()=>{if(confirm('Удалить всю историю?')){chats=[];cur=null;save();hist();render()}};
-$('go').onclick=()=>{const v=$('in').value;$('in').value='';send(v)};
-$('in').onkeydown=e=>{if(e.key==='Enter')$('go').click()};
-$('mic').onclick=()=>{if(!SR)return alert('Голосовой ввод не поддерживается в этом браузере');
- const r=new SR();r.lang='ru-RU';$('stat').textContent='LISTENING...';
- r.onresult=e=>send(e.results[0][0].transcript);r.onend=r.onerror=()=>$('stat').textContent=wait?'STANDBY':'ONLINE';r.start()};
+guard('prov', () => { $('prov').innerHTML = Object.entries(P).map(([k, v]) => `<option value="${k}">${v.n}</option>`).join('') });
+const sync = () => { $('ur').style.display = $('prov').value === 'custom' ? 'block' : 'none'; $('mdl').placeholder = $('prov').value === 'gemini' ? 'пусто = каскад (' + GEMINI_MODELS[0] + '...)' : ((P[$('prov').value] || {}).m || 'имя модели') };
+on('prov', 'onchange', sync);
+function openS() {
+ safeVal('prov', S.prov); safeVal('key', S.key); safeVal('mdl', S.model); safeVal('url', S.url);
+ safeVal('payRequisites', S.payInfo || DEFAULT_PAY_INFO); $('vc').checked = !!S.voice; sync(); show('os', 1);
+}
+on('bs', 'onclick', openS);
+on('sx', 'onclick', () => show('os', 0));
+on('ss', 'onclick', () => {
+ if ($('key').value.trim().length < 8) return alert('Введите корректный API-ключ');
+ S = {...S, prov: $('prov').value, key: $('key').value.trim(), model: $('mdl').value.trim(), url: $('url').value.trim(), payInfo: cleanPay($('payRequisites').value.trim()), voice: $('vc').checked};
+ save(); syncPlusUI(); show('os', 0);
+});
+on('bh', 'onclick', () => { hist(); show('oh', 1) });
+on('hx', 'onclick', () => show('oh', 0));
+on('hn', 'onclick', () => { newChat(); show('oh', 0) });
+on('hc', 'onclick', () => { if (confirm('Удалить всю историю?')) { chats = []; cur = null; save(); hist(); render() } });
+on('go', 'onclick', () => { const v = $('in').value; $('in').value = ''; send(v) });
+on('in', 'onkeydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('go').click() } });
+on('mic', 'onclick', () => {
+ if (!SR) return alert('Голосовой ввод не поддерживается в этом браузере');
+ try {
+  const r = new SR(); r.lang = 'ru-RU'; $('stat').textContent = 'LISTENING...';
+  r.onresult = e => send(e.results[0][0].transcript);
+  r.onend = r.onerror = () => { $('stat').textContent = wait ? 'STANDBY' : 'ONLINE' };
+  r.start();
+ } catch (e) { console.warn(e); $('stat').textContent = wait ? 'STANDBY' : 'ONLINE' }
+});
 
-render();if(!S.key)openS();
-if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js');
+document.querySelectorAll('#quickChips .chip').forEach(b => {
+ b.addEventListener('click', () => {
+  if (b.dataset.send) send(b.dataset.send);
+  else if (b.dataset.act === 'live') startLive();
+  else if (b.dataset.act === 'plus') togglePlusBox();
+ });
+});
+
+guard('render', render);
+guard('firstRun', () => { if (!S.key) openS() });
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+ navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
+}
 </script></body></html>
